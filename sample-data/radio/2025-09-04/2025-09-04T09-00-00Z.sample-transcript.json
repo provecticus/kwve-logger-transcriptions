@@ -1,0 +1,41 @@
+{
+  "asset_id": "radio:KWVE:2025-09-04T09:00:00Z",
+  "source": "radio",
+  "station": "KWVE",
+  "program": "Morning Show",
+  "utc_start": "2025-09-04T09:00:00Z",
+  "utc_end": "2025-09-04T10:00:00Z",
+  "language": "en",
+  "speakers": [
+    {
+      "id": "S0",
+      "label": "Host"
+    },
+    {
+      "id": "S1",
+      "label": "Guest"
+    }
+  ],
+  "segments": [
+    {
+      "start": 125.37,
+      "end": 128.92,
+      "speaker": "S0",
+      "text": "You're listening to KWVE\u2014Sharing Life, Delivering Truth, Giving Hope."
+    },
+    {
+      "start": 129.1,
+      "end": 134.02,
+      "speaker": "S1",
+      "text": "Good morning! Today we're joined by our special guest."
+    }
+  ],
+  "artifacts": {
+    "json_uri": "radio/KWVE/2025/09/04/09-00-00.sample-transcript.json",
+    "txt_uri": "radio/KWVE/2025/09/04/09-00-00.sample-transcript.txt",
+    "srt_uri": "radio/KWVE/2025/09/04/09-00-00.sample-transcript.srt",
+    "vtt_uri": "radio/KWVE/2025/09/04/09-00-00.sample-transcript.vtt"
+  },
+  "retention_expiry_ts": "2025-11-03T09:00:00Z",
+  "legal_hold": false
+}

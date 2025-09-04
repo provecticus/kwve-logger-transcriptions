@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Transcript",
+  "type": "object",
+  "required": [
+    "asset_id",
+    "source",
+    "station",
+    "utc_start",
+    "segments"
+  ],
+  "properties": {
+    "asset_id": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "radio"
+      ]
+    },
+    "station": {
+      "type": "string"
+    },
+    "program": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "utc_start": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "utc_end": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "language": {
+      "type": "string"
+    },
+    "speakers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "text"
+        ],
+        "properties": {
+          "start": {
+            "type": "number"
+          },
+          "end": {
+            "type": "number"
+          },
+          "speaker": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "json_uri": {
+          "type": "string"
+        },
+        "txt_uri": {
+          "type": "string"
+        },
+        "srt_uri": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "vtt_uri": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "retention_expiry_ts": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "legal_hold": {
+      "type": "boolean"
+    }
+  }
+}
