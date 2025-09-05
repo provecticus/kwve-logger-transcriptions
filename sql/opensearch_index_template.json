@@ -1,51 +1,32 @@
 {
-  "settings": {
-    "index": {
-      "number_of_shards": 1,
-      "number_of_replicas": 0
-    },
-    "analysis": {
-      "analyzer": {
-        "default": {
-          "type": "standard"
+  "index_patterns": ["kwve-transcripts*"],
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0
+      },
+      "analysis": {
+        "analyzer": {
+          "default": {
+            "type": "standard"
+          }
         }
       }
-    }
-  },
-  "mappings": {
-    "properties": {
-      "asset_id": {
-        "type": "keyword"
-      },
-      "source": {
-        "type": "keyword"
-      },
-      "station": {
-        "type": "keyword"
-      },
-      "program": {
-        "type": "keyword"
-      },
-      "utc_start": {
-        "type": "date"
-      },
-      "utc_end": {
-        "type": "date"
-      },
-      "duration_sec": {
-        "type": "integer"
-      },
-      "text": {
-        "type": "text"
-      },
-      "speakers": {
-        "type": "keyword"
-      },
-      "highlights": {
-        "type": "text"
-      },
-      "keywords": {
-        "type": "keyword"
+    },
+    "mappings": {
+      "properties": {
+        "asset_id": { "type": "keyword" },
+        "source": { "type": "keyword" },
+        "station": { "type": "keyword" },
+        "program": { "type": "keyword" },
+        "utc_start": { "type": "date" },
+        "utc_end": { "type": "date" },
+        "duration_sec": { "type": "integer" },
+        "text": { "type": "text" },
+        "speakers": { "type": "keyword" },
+        "highlights": { "type": "text" },
+        "keywords": { "type": "keyword" }
       }
     }
   }
