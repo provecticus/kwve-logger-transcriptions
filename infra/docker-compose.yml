@@ -3,7 +3,7 @@ services:
     image: postgres:16
     container_name: kwve_pg
     restart: unless-stopped
-    env_file: ../.env
+    env_file: .env
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -20,7 +20,7 @@ services:
     image: opensearchproject/opensearch:2.13.0
     container_name: kwve_os
     restart: unless-stopped
-    env_file: ../.env
+    env_file: .env
     environment:
       - discovery.type=single-node
       - plugins.security.disabled=true
@@ -51,7 +51,7 @@ services:
     image: minio/minio:latest
     container_name: kwve_minio
     restart: unless-stopped
-    env_file: ../.env
+    env_file: .env
     command: server /data --console-address ":${MINIO_CONSOLE_PORT}"
     ports:
       - "${MINIO_PORT}:9000"

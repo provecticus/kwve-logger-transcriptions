@@ -88,3 +88,45 @@ audio in \~60 days.
 - Extend Docker Compose to mount a directory for dropping test WAV
 files.\
 - Proceed to Phase 1 (Ingestion Watcher) and Phase 2 (ASR Worker).
+
+
+---
+
+## Windows CMD Quick Start Script
+
+For Windows users, you can automate the entire bootstrap process with the provided batch file:
+
+1. Save the following as `bootstrap-test-windows.cmd` in the project root (next to `.env`).  
+2. Double-click to run, or execute in a `cmd.exe` window.
+
+```bat
+@echo off
+REM ==========================================================
+REM KWVE Logger Transcriptions - Bootstrap Test (Windows CMD)
+REM ==========================================================
+
+echo Starting KWVE Logger Transcriptions stack...
+
+REM Bring up Docker stack with explicit env file
+docker compose -f infra\docker-compose.yml --env-file .env up -d
+
+echo Initializing Postgres schema...
+docker compose -f infra\docker-compose.yml exec postgres psql -U kwve -d kwve -f /sql/001_init.sql
+docker compose -f infra\docker-compose.yml exec postgres psql -U kwve -d kwve -f /sql/090_sample_inserts.sql
+
+echo Loading OpenSearch index template...
+curl -u admin:admin -X PUT http://localhost:9200/_index_template/kwve-transcripts-template ^
+  -H "Content-Type: application/json" ^
+  --data-binary @sql/opensearch_index_template.json
+
+echo Loading sample transcript...
+curl -u admin:admin -X POST http://localhost:9200/kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z ^
+  -H "Content-Type: application/json" ^
+  --data-binary @sample-data/radio/2025-09-04/2025-09-04T09-00-00Z.sample-transcript.json
+
+echo All steps completed. Open http://localhost:5601 to verify in OpenSearch Dashboards.
+pause
+```
+
+This script ensures `.env` is loaded correctly and uses Windows CMD syntax (`^` for line breaks instead of `\`).
+
