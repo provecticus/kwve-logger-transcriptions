@@ -1,0 +1,18 @@
+=== Verify Start ===
+OS=http://localhost:19220  OSD=http://localhost:15601/api/status  MINIO=http://localhost:19000/minio/health/ready
+PG user/db/port: kwve / kwve_logs / 15432
+[1] docker ps
+[FAIL] Container missing: kwve_pg
+[FAIL] Container missing: kwve_os
+[FAIL] Container missing: kwve_os_dash
+[FAIL] Container missing: kwve_minio
+[FAIL] Container missing: kwve_redis
+[PASS] MinIO Health HTTP 200
+[FAIL] Index missing or not accessible: kwve-transcripts (404)
+[FAIL] Sample doc missing (404)
+ ?column? 
+----------
+        1
+(1 row)
+
+[PASS] Postgres connectivity OK (SELECT 1).

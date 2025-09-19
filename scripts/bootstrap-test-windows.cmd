@@ -92,7 +92,7 @@ timeout /t %SLEEP_SECONDS% >nul
 goto :wait_os
 :os_ready
 
-REM --- wait: Dashboards (HTTP 200 = ready; 503 means booting) ---
+REM --- wait: Dashboards (accept 200, 401, 302) ---
 echo [WAIT] OpenSearch Dashboards at %OSD_STATUS% ...
 set "TRIES=0"
 :wait_osd
@@ -100,35 +100,30 @@ set "CODE_OSD="
 for /f "usebackq delims=" %%S in (`curl -s -o NUL -w "%%{http_code}" "%OSD_STATUS%" 2^>^&1`) do set "CODE_OSD=%%S"
 
 set /a IDX=TRIES %% 4
-for /f %%c in ("!IDX!") do set "CH=!SPIN:~%%c,1!"
+for /f %%c in ("!IDX!") do (
+  set "SP0=|"
+  set "SP1=/"
+  set "SP2=-"
+  set "SP3=\"
+  for %%z in (!IDX!) do set "CH=!SP%%z!"
+)
 <nul set /p "=  [!CH!] Dashboards http=!CODE_OSD! (try !TRIES!/!MAX_TRIES_OSD!)   `r"
 
-if "!CODE_OSD!"=="200" (
+if "!CODE_OSD!"=="200"  (echo. & echo [OK ] Dashboards HTTP 200 & goto :dash_ready)
+if "!CODE_OSD!"=="401"  (echo. & echo [OK ] Dashboards HTTP 401 (auth) & goto :dash_ready)
+if "!CODE_OSD!"=="302"  (echo. & echo [OK ] Dashboards HTTP 302 (redirect) & goto :dash_ready)
+
+set /a TRIES+=1
+if !TRIES! GEQ !MAX_TRIES_OSD! (
   echo.
-  echo [OK ] Dashboards HTTP 200
-) else (
-  REM 503 is common while plugins load; keep waiting
-  if "!CODE_OSD!"=="503" (
-    set /a TRIES+=1
-    if !TRIES! GEQ !MAX_TRIES_OSD! (
-      echo.
-      echo [FAIL] Dashboards not ready (HTTP=!CODE_OSD!)
-      goto :diag_fail
-    )
-    timeout /t %SLEEP_SECONDS% >nul
-    goto :wait_osd
-  ) else (
-    REM Other codes: still wait, but show them explicitly
-    set /a TRIES+=1
-    if !TRIES! GEQ !MAX_TRIES_OSD! (
-      echo.
-      echo [FAIL] Dashboards not ready (HTTP=!CODE_OSD!)
-      goto :diag_fail
-    )
-    timeout /t %SLEEP_SECONDS% >nul
-    goto :wait_osd
-  )
+  echo [FAIL] Dashboards not ready (HTTP=!CODE_OSD!)
+  goto :diag_fail
 )
+timeout /t %SLEEP_SECONDS% >nul
+goto :wait_osd
+
+:dash_ready
+
 
 REM --- optional: container sanity log ---
 echo [INFO] docker ps summary >> "%LOGFILE%"

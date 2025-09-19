@@ -1,23 +1,16 @@
 @echo off
 REM =====================================================================
-REM verify-deploy.cmd — Minimal, robust PASS/FAIL verification (CMD-safe)
-REM No multiline variables, no tokenized URL lists, no PowerShell.
-REM Works from repo root or scripts\ via pushd ..
+REM verify-deploy.cmd — Live-progress verification (env-aware, robust)
 REM =====================================================================
 setlocal EnableExtensions EnableDelayedExpansion
 pushd "%~dp0\.."
 
-REM ----- locate repo root -----
-set "SCRIPT_DIR=%~dp0"
-pushd "%SCRIPT_DIR%\.."
-
-REM ----- config -----
 set "COMPOSE_FILE=infra\docker-compose.yml"
 set "ENV_FILE=infra\.env"
 
 REM ----- defaults (overridden by infra\.env) -----
 set "OPENSEARCH_PORT=9200"
-set "OPENSEARCH_DASHBOARDS_PORT=5601"   REM ### CHANGED: now respected
+set "OPENSEARCH_DASHBOARDS_PORT=5601"
 set "MINIO_PORT=9000"
 set "POSTGRES_PORT=5432"
 set "POSTGRES_USER=kwve"
@@ -38,17 +31,12 @@ if exist "%ENV_FILE%" (
   )
 )
 
-REM ----- derived URLs -----
 set "OS_URL=http://localhost:%OPENSEARCH_PORT%"
 set "OSD_URL=http://localhost:%OPENSEARCH_DASHBOARDS_PORT%/api/status"
 set "MINIO_HEALTH=http://localhost:%MINIO_PORT%/minio/health/ready"
+set "OS_INDEX_URL=%OS_URL%/kwve-transcripts"
+set "OS_DOC_URL=%OS_URL%/kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z"
 
-REM ----- index/doc -----
-set "OS_INDEX=kwve-transcripts"
-set "OS_DOC_ID=radio:KWVE:2025-09-04T09:00:00Z"
-set "OS_DOC_URL=%OS_URL%/%OS_INDEX%/_doc/%OS_DOC_ID%"
-
-REM ----- logging -----
 for /f "tokens=1-4 delims=/ " %%a in ("%date%") do (set mm=%%a& set dd=%%b& set yyyy=%%c)
 for /f "tokens=1-3 delims=:." %%a in ("%time%") do (set hh=%%a& set nn=%%b& set ss=%%c)
 set hh=0%hh%
@@ -59,36 +47,42 @@ set "LOGFILE=%LOGDIR%\verify-%yyyy%%mm%%dd%-%hh%%nn%%ss%.log"
 
 set PASS_COUNT=0
 set FAIL_COUNT=0
+set "SPIN=|/-\"
 
-call :log "=== KWVE Verify (env-aware) ==="
-call :log "OS: %OS_URL%  OSD: %OSD_URL%  MinIO: %MINIO_HEALTH%"
+echo === KWVE Logger Transcriptions — Verification (env-aware) ===
+echo Compose: %COMPOSE_FILE%   Env: %ENV_FILE%
+echo Logs: %LOGFILE%
+echo.
+
+call :log "=== Verify Start ==="
+call :log "OS=%OS_URL%  OSD=%OSD_URL%  MINIO=%MINIO_HEALTH%"
 call :log "PG user/db/port: %POSTGRES_USER% / %POSTGRES_DB% / %POSTGRES_PORT%"
 
-REM ----- (1) Containers -----
+REM ----- (1) Containers (use name filter to avoid project prefix issues) -----
 echo [1] Checking containers...
-for %%C in (kwve_pg kwve_os kwve_os_dash kwve_minio kwve_redis) do (
-  docker ps | findstr /I "%%C" >nul && (
-    call :pass "Container up: %%C"
-  ) || (
-    call :fail "Container missing: %%C"
-  )
-)
+call :container_up kwve_pg
+call :container_up kwve_os
+call :container_up kwve_os_dash
+call :container_up kwve_minio
+call :container_up kwve_redis
 
-REM ----- (2) HTTP endpoints -----
+REM ----- (2) HTTP endpoints with live progress -----
 echo [2] Checking HTTP endpoints...
-call :curl_check "OpenSearch" "%OS_URL%" 200
-call :curl_check "OpenSearch Dashboards" "%OSD_URL%" 200
-call :curl_check "MinIO Health" "%MINIO_HEALTH%" 200
+REM OpenSearch: want 200; will also pass 401 if security is on
+call :wait_http "OpenSearch" "%OS_URL%/" "200,401" 45 2
+REM Dashboards: accept 200, 401, 302 (common during warmup/auth)
+call :wait_http "OpenSearch Dashboards" "%OSD_URL%" "200,401,302" 90 2
+REM MinIO health: 200 when ready
+call :wait_http "MinIO Health" "%MINIO_HEALTH%" "200" 45 2
 
 REM ----- (3) OpenSearch index & doc -----
 echo [3] Checking OpenSearch index/doc...
-call :curl_code "%OS_URL%/%OS_INDEX%"
+call :curl_code "%OS_INDEX_URL%"
 if "!_CURL_CODE!"=="200" (
-  call :pass "Index exists: %OS_INDEX% (200)"
+  call :pass "Index exists: kwve-transcripts (200)"
 ) else (
-  call :fail "Index missing: %OS_INDEX% (!_CURL_CODE!)"
+  call :fail "Index missing or not accessible: kwve-transcripts (!_CURL_CODE!)"
 )
-
 call :curl_code "%OS_DOC_URL%"
 if "!_CURL_CODE!"=="200" (
   call :pass "Sample doc present (200)"
@@ -96,7 +90,7 @@ if "!_CURL_CODE!"=="200" (
   call :fail "Sample doc missing (!_CURL_CODE!)"
 )
 
-REM ----- (4) Postgres connectivity (uses POSTGRES_DB from env) -----
+REM ----- (4) Postgres connectivity -----
 echo [4] Checking Postgres connectivity...
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -c "SELECT 1;" >> "%LOGFILE%" 2>&1
 if errorlevel 1 (
@@ -114,16 +108,16 @@ echo.
 if %FAIL_COUNT%==0 (
   echo RESULT: PASS  (All checks successful)
   echo Logs: %LOGFILE%
-  echo =============================================================
   popd & endlocal & exit /b 0
 ) else (
   echo RESULT: FAIL  (%FAIL_COUNT% failed)
   echo See logs: %LOGFILE%
-  echo =============================================================
   popd & endlocal & exit /b 1
 )
 
-REM ----- helpers -----
+REM ============================
+REM Helpers
+REM ============================
 :log
 >>"%LOGFILE%" echo %~1
 goto :eof
@@ -146,14 +140,52 @@ for /f "usebackq delims=" %%S in (`curl -s -o NUL -w "%%{http_code}" "%_URL%" 2^
 >>"%LOGFILE%" echo curl "%_URL%" -> !_CURL_CODE!
 goto :eof
 
-:curl_check
+REM container check that tolerates project prefixes etc.
+:container_up
+set "_NAME=%~1"
+for /f "usebackq delims=" %%N in (`docker ps --filter "name=^%_NAME%$" --format "{{.Names}}"`) do set "_FOUND=%%N"
+if defined _FOUND (
+  call :pass "Container up: %_NAME%"
+) else (
+  call :fail "Container missing: %_NAME%"
+)
+set "_FOUND="
+goto :eof
+
+REM Live wait for an endpoint with acceptable codes list (e.g., "200,401")
+:wait_http
 set "_LBL=%~1"
 set "_URL=%~2"
-set "_EXP=%~3"
-call :curl_code "%_URL%"
-if "!_CURL_CODE!"=="%_EXP%" (
-  call :pass "%_LBL% !_CURL_CODE!"
-) else (
-  call :fail "%_LBL% expected %_EXP%, got !_CURL_CODE!  (%_URL%)"
+set "_ACCEPT=%~3"
+set "_MAX=%~4"
+set "_SLEEP=%~5"
+set "_TRY=0"
+echo [WAIT] %_LBL% at %_URL%
+:wait_http_loop
+set /a IDX=_TRY %% 4
+for /f %%c in ("!IDX!") do (
+  set "SP0=|"
+  set "SP1=/"
+  set "SP2=-"
+  set "SP3=\"
+  for %%z in (!IDX!) do set "CH=!SP%%z!"
 )
-goto :eof
+set "CODE="
+for /f "usebackq delims=" %%S in (`curl -s -o NUL -w "%%{http_code}" "%_URL%" 2^>^&1`) do set "CODE=%%S"
+<nul set /p "=  [!CH!] %_LBL% http=!CODE! (try !_TRY!/!_MAX!)   `r"
+
+echo %_ACCEPT% | findstr /B /C:"%CODE%" /C:",%CODE%" >nul
+if not errorlevel 1 (
+  echo.
+  call :pass "%_LBL% HTTP !CODE!"
+  goto :eof
+)
+
+set /a _TRY+=1
+if !_TRY! GEQ !_MAX! (
+  echo.
+  call :fail "%_LBL% expected one of {%_ACCEPT%}, got !CODE!  (%_URL%)"
+  goto :eof
+)
+timeout /t %_SLEEP% >nul
+goto :wait_http_loop

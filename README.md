@@ -1,141 +1,139 @@
-# KWVE Logger Transcriptions — Infrastructure Scaffold
+# KWVE Logger Transcriptions
 
-This repository contains the **infrastructure scaffold** for KWVE Logger Transcriptions, designed for quick lab/dev deployments. It brings up **Postgres**, **OpenSearch**, **MinIO**, and **Redis** with sample data and schemas, plus Windows helper scripts for bootstrap, verification, and reset.
-
----
-
-## Repository Layout
-
-```
-kwve-logger-transcriptions/
-│   .gitignore
-│   README.md
-│
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── ROADMAP.md
-│   ├── KWVE_Bootstrap_Testing_Guide.md
-│   ├── KWVE_Quickstart_Deployment.md
-│   └── KWVE_Scripts_Usage.md
-│
-├── infra/
-│   ├── .env
-│   ├── .env.example
-│   └── docker-compose.yml
-│
-├── policies/
-│   └── retention.yaml
-│
-├── sample-data/
-│   └── radio/
-│       └── 2025-09-04/
-│           ├── 09-00-00.sample.mp3
-│           ├── 2025-09-04T09-00-00Z.sample-transcript.json
-│           ├── 2025-09-04T09-00-00Z.sample-transcript.srt
-│           ├── 2025-09-04T09-00-00Z.sample-transcript.txt
-│           └── 2025-09-04T09-00-00Z.sample-transcript.vtt
-│
-├── schemas/
-│   ├── asset.schema.json
-│   └── transcript.schema.json
-│
-├── scripts/
-│   ├── bootstrap-test-windows.cmd
-│   ├── reset-stack.cmd
-│   ├── verify-deploy.cmd
-│   └── logs/
-│       └── verify-*.log
-│
-└── sql/
-    ├── 001_init.sql
-    ├── 090_sample_inserts.sql
-    └── opensearch_index_template.json
-```
-
-- `infra/` — Docker Compose + environment files
-- `scripts/` — helper scripts for bootstrap, verify, and reset
-- `docs/` — architecture, roadmap, quickstart, bootstrap guide, scripts usage
-- `schemas/` — JSON Schemas for assets and transcripts
-- `sql/` — Postgres schema, inserts, and OpenSearch index template
-- `sample-data/` — example hour transcript + TXT/VTT/SRT/VTT/JSON and a tiny MP3 placeholder
-- `policies/` — example retention policy YAML
+A containerized stack for ingesting, storing, and searching broadcast transcripts.
 
 ---
 
-## Quick Start
+## 📋 Overview
 
-### Prerequisites
-- Windows 10/11 with **CMD** or **PowerShell**
-- **Docker Desktop** installed and running
-- `infra/.env` created (copy from `infra/.env.example` and edit creds/ports)
+This repository provides an **infrastructure stack** using Docker Compose with the following services:
 
-### Deployment Flow (Windows)
-From the repo root:
-```cmd
-scripts\reset-stack.cmd
+- **Postgres** – metadata & transcript storage  
+- **OpenSearch** – full‑text search over transcripts  
+- **OpenSearch Dashboards** – UI for exploring/searching  
+- **MinIO** – object storage for raw audio assets  
+- **Redis** – caching, queueing, ephemeral tasks  
+
+The stack is designed for reproducible local testing, development, and eventual deployment.
+
+---
+
+## 🚀 Quickstart
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/your-org/kwve-logger-transcriptions.git
+cd kwve-logger-transcriptions
+```
+
+### 2. Pre‑requisites
+
+Ensure the following are installed on your system:
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac) or Docker Engine (Linux)
+- [Docker Compose V2](https://docs.docker.com/compose/) (comes with Docker Desktop)
+- **Windows users only**:
+  - [GnuWin32 CoreUtils](http://gnuwin32.sourceforge.net/packages/coreutils.htm) — required for `tee.exe`
+    - Add `C:\Program Files (x86)\GnuWin32\bin` (or wherever installed) to your PATH.
+
+```powershell
+# verify tee.exe is on PATH
+where tee
+```
+
+### 3. Environment Variables
+
+Copy the example env file:
+
+```bash
+cp infra/.env.example infra/.env
+```
+
+Edit `infra/.env` and set the required values (passwords, secrets, ports).
+
+### 4. Bootstrap the Stack
+
+Run the Windows bootstrap script (from repo root):
+
+```powershell
 scripts\bootstrap-test-windows.cmd
+```
+
+This will:
+- Bring up the containers (`docker compose up -d`)
+- Wait for OpenSearch and Dashboards to become available
+- Initialize Postgres schema & sample data
+- Load a sample transcript into OpenSearch
+
+Progress is streamed with `[STEP]`, `[WAIT]`, `[OK]`, `[FAIL]` messages.
+
+### 5. Verify Deployment
+
+Run:
+
+```powershell
 scripts\verify-deploy.cmd
 ```
 
-- **reset-stack.cmd** → Cleans all containers, volumes, networks (use if you want a clean slate)
-- **bootstrap-test-windows.cmd** → Brings up stack, waits for services, seeds Postgres + OpenSearch
-- **verify-deploy.cmd** → Checks container health, endpoints, index/doc presence, Postgres connectivity. Produces PASS/FAIL and logs.
+This performs:
+- Container checks (`docker ps`)
+- HTTP health checks (OpenSearch, Dashboards, MinIO)
+- Index/document existence check in OpenSearch
+- Postgres connectivity & simple query
 
-### Expected Verification PASS
+Results are summarized as **PASS/FAIL**, with logs written to `scripts\logs\`.
+
+### 6. Reset the Stack
+
+If you need to start fresh:
+
+```powershell
+scripts\reset-stack.cmd
 ```
-RESULT: PASS  (All checks successful)
-Logs: scripts\logs\verify-YYYYMMDD-HHMMSS.log
+
+This will stop containers, remove volumes/networks, and prune dangling resources.
+
+---
+
+## 🗂 Repo Layout
+
+```
+.
+├── docs/                # architecture, guides, roadmap
+├── infra/               # compose & env files
+├── policies/            # data retention policies
+├── sample-data/         # demo MP3 + transcript JSON/SRT/TXT/VTT
+├── schemas/             # JSON schema for assets + transcripts
+├── scripts/             # bootstrap, verify, reset (Windows .cmd)
+│   └── logs/            # log output from verification
+└── sql/                 # init schema, sample inserts, index templates
 ```
 
 ---
 
-## Documentation
+## 📑 Docs
 
-- [Architecture](docs/ARCHITECTURE.md) — overall system design
-- [Roadmap](docs/ROADMAP.md) — planned features and phases
-- [Bootstrap Testing Guide](docs/KWVE_Bootstrap_Testing_Guide.md) — original manual bootstrap process
-- [Quickstart Deployment](docs/KWVE_Quickstart_Deployment.md) — streamlined guide for new deployments
-- [Scripts Usage](docs/KWVE_Scripts_Usage.md) — detailed guide for `reset`, `bootstrap`, and `verify`
-
----
-
-## Troubleshooting
-
-- **`.env not found`** → ensure `infra/.env` exists; if compose expects a root `.env`, bootstrap will self-heal by copying.
-- **HTTP 000 / 503 in verify** → services not ready; wait 30–60s and rerun.
-- **Index/doc missing** → re-run bootstrap to seed OpenSearch.
-- **Postgres fail** → check `POSTGRES_USER`/`POSTGRES_DB` in `infra/.env`; tail logs:
-  ```cmd
-  pushd infra
-  docker compose logs --since=5m postgres
-  popd
-  ```
-- **Container name conflict (`already in use`)** → run `scripts\reset-stack.cmd` to clear fixed-name containers.
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- [ROADMAP.md](docs/ROADMAP.md)
+- [KWVE_Bootstrap_Testing_Guide.md](docs/KWVE_Bootstrap_Testing_Guide.md)
+- [KWVE_Quickstart_Deployment.md](docs/KWVE_Quickstart_Deployment.md)
 
 ---
 
-## CI/CD Integration
+## ⚡ Scripts Quick Reference
 
-- `verify-deploy.cmd` returns **exit codes**: `0` (pass), `1` (fail).
-- Logs are written to `scripts/logs/verify-*.log`.
-- Use this in pipelines to gate further automation.
-
----
-
-## Notes
-
-- This scaffold is **data-plane only**. API/UI and GPU ASR workers live in separate repos/services.
-- Retention defaults are set in [policies/retention.yaml](policies/retention.yaml).
-  - Audio objects: 60 days (example) via MinIO lifecycle rules
-  - Transcripts/metadata: indefinite or 2+ years depending on policy
-- You can adapt the scripts for PowerShell or Linux/Mac if needed — the flow remains: **reset → bootstrap → verify**.
+| Script                          | Purpose |
+|---------------------------------|---------|
+| `scripts/bootstrap-test-windows.cmd` | Launches the full stack, waits for readiness, seeds data |
+| `scripts/verify-deploy.cmd`     | Performs health checks (containers, HTTP endpoints, Postgres, indices) |
+| `scripts/reset-stack.cmd`       | Stops and removes all stack containers, volumes, and networks |
 
 ---
 
-## Scripts Quick Reference
+## ✅ Next Steps
 
-| Script                     | Purpose                                                                 | When to Run                                         |
-|-----------------------------|-------------------------------------------------------------------------|-----------------------------------------------------|
-| `reset-stack.cmd`           | Aggressively tears down containers, networks, volumes, clears state     | If you want a clean slate, or hit container conflicts |
-| `bootstrap-test-windows.cmd`| Brings up stack, waits for readiness, seeds Postgres + OpenSearch       | First-time setup, or after reset                    |
-| `verify-deploy.cmd`         | Runs health/content checks with PASS/FAIL and logs to `scripts/logs/`   | After bootstrap, or any time you want to validate   |
+- Build ingestion pipeline for real‑time transcripts  
+- Harden security (TLS, auth, backups)  
+- Deploy to staging/production Kubernetes or cloud stack  
+
