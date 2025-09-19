@@ -9,7 +9,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
     ports:
-      - "${POSTGRES_PORT}:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ../sql:/sql:ro
@@ -24,10 +24,12 @@ services:
     environment:
       - discovery.type=single-node
       - plugins.security.disabled=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
       - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
     ports:
-      - "${OPENSEARCH_PORT}:9200"
+      # ### CHANGED: host port from .env -> container 9200 (fixed by image)
+      - "${OPENSEARCH_PORT:-9200}:9200"
     volumes:
       - os_data:/usr/share/opensearch/data
       - ../sql:/sql:ro
@@ -39,9 +41,11 @@ services:
     container_name: kwve_os_dash
     restart: unless-stopped
     environment:
+      # ### CHANGED: talk to OpenSearch in-cluster over HTTP on 9200
       - OPENSEARCH_HOSTS=["http://opensearch:9200"]
     ports:
-      - "5601:5601"
+      # ### CHANGED: host port from .env -> container 5601
+      - "${OPENSEARCH_DASHBOARDS_PORT:-5601}:5601"
     depends_on:
       - opensearch
     networks:
@@ -52,10 +56,10 @@ services:
     container_name: kwve_minio
     restart: unless-stopped
     env_file: .env
-    command: server /data --console-address ":${MINIO_CONSOLE_PORT}"
+    command: server /data --console-address ":${MINIO_CONSOLE_PORT:-9001}"
     ports:
-      - "${MINIO_PORT}:9000"
-      - "${MINIO_CONSOLE_PORT}:9001"
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
@@ -69,7 +73,7 @@ services:
     container_name: kwve_redis
     restart: unless-stopped
     ports:
-      - "${REDIS_PORT}:6379"
+      - "${REDIS_PORT:-6379}:6379"
     networks:
       - kwve_net
 

@@ -1,0 +1,32 @@
+=== KWVE Logger Transcriptions — Verification Started ===
+Compose: infra\docker-compose.yml   Env: infra\.env
+CWD: c:\Projects\kwve-logger-transcriptions
+ECHO is off.
+[1] Checking containers...
+CONTAINER: kwve_os_dash
+CONTAINER: kwve_redis
+CONTAINER: kwve_pg
+CONTAINER: kwve_os
+CONTAINER: kwve_minio
+[PASS] Container up: kwve_pg
+[PASS] Container up: kwve_os
+[PASS] Container up: kwve_os_dash
+[PASS] Container up: kwve_minio
+[PASS] Container up: kwve_redis
+ECHO is off.
+[2] Checking HTTP endpoints...
+[FAIL] OpenSearch expected 200, got 000  (http://localhost:9200)
+[FAIL] OpenSearch Dashboards expected 200, got 000  (http://localhost:5601/api/status)
+[FAIL] MinIO Health expected 200, got 000  (http://localhost:9000/minio/health/ready)
+ECHO is off.
+[3] Checking OpenSearch index 
+[FAIL] Index missing: kwve-transcripts ()
+[FAIL] Sample doc missing: radio:KWVE:2025-09-04T09:00:00Z ()
+ECHO is off.
+[4] Checking Postgres connectivity...
+psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  database "kwve" does not exist
+[FAIL] Postgres connectivity failed.
+ECHO is off.
+=== SUMMARY ===
+PASS: 5
+FAIL: 6

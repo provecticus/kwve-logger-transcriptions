@@ -1,6 +1,7 @@
 @echo off
 REM =====================================================================
-REM bootstrap-test-windows.cmd — Idempotent bootstrap with waits + init
+REM bootstrap-test-windows.cmd — Idempotent bootstrap with live progress
+REM Shows status codes while waiting for services; seeds DB and OpenSearch
 REM Works from repo root OR scripts\ (auto-cds to repo root)
 REM =====================================================================
 setlocal EnableExtensions EnableDelayedExpansion
@@ -26,7 +27,7 @@ set "LOGFILE=%LOGDIR%\bootstrap-%yyyy%%mm%%dd%-%hh%%nn%%ss%.log"
 
 REM --- read env (minimal, robust) ---
 set "OPENSEARCH_PORT=9200"
-set "OPENSEARCH_DASHBOARDS_PORT=5601"  & REM ### CHANGED: new var
+set "OPENSEARCH_DASHBOARDS_PORT=5601"
 set "POSTGRES_USER=kwve"
 set "POSTGRES_DB=kwve"
 set "MINIO_PORT=9000"
@@ -34,7 +35,7 @@ if exist "%ENV_FILE%" (
   for /f "usebackq tokens=1* delims== eol=#" %%A in ("%ENV_FILE%") do (
     set "K=%%~A" & set "V=%%~B"
     if /I "!K!"=="OPENSEARCH_PORT" set "OPENSEARCH_PORT=!V!"
-    if /I "!K!"=="OPENSEARCH_DASHBOARDS_PORT" set "OPENSEARCH_DASHBOARDS_PORT=!V!"  & REM ### CHANGED
+    if /I "!K!"=="OPENSEARCH_DASHBOARDS_PORT" set "OPENSEARCH_DASHBOARDS_PORT=!V!"
     if /I "!K!"=="POSTGRES_USER" set "POSTGRES_USER=!V!"
     if /I "!K!"=="POSTGRES_DB" set "POSTGRES_DB=!V!"
     if /I "!K!"=="MINIO_PORT" set "MINIO_PORT=!V!"
@@ -43,50 +44,90 @@ if exist "%ENV_FILE%" (
 
 echo [INFO] Using: POSTGRES_USER=%POSTGRES_USER% POSTGRES_DB=%POSTGRES_DB% OS=http://localhost:%OPENSEARCH_PORT% MinIO=%MINIO_PORT%
 echo [STEP] docker compose up -d
-docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" up -d >> "%LOGFILE%" 2>&1
+REM Print compose output to console AND log
+docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" up -d | tee.exe "%LOGFILE%" >nul 2>&1
 if errorlevel 1 (
-  echo [ERR] compose up failed
+  echo [ERR] compose up failed (see %LOGFILE%)
   popd & endlocal & exit /b 1
 )
 
 REM --- build convenience URLs ---
 set "OS_HTTP=http://localhost:%OPENSEARCH_PORT%"
 set "OS_HTTPS=https://localhost:%OPENSEARCH_PORT%"
-set "OSD_STATUS=http://localhost:%OPENSEARCH_DASHBOARDS_PORT%/api/status"  & REM ### CHANGED
+set "OSD_STATUS=http://localhost:%OPENSEARCH_DASHBOARDS_PORT%/api/status"
 
-REM --- wait: OpenSearch (accept HTTP 200/401 or HTTPS 200/401) ---
+REM --- helper: spinner char (just for fun) ---
+set "SPIN=|/-\"
+
+REM --- WAIT SETTINGS (tweak if you like) ---
+set "MAX_TRIES_OS=120"          REM ~4 min at 2s
+set "MAX_TRIES_OSD=180"         REM ~6 min at 2s
+set "SLEEP_SECONDS=2"
+
+REM --- wait: OpenSearch (accept HTTP/HTTPS 200 or 401) ---
 echo [WAIT] OpenSearch at %OS_HTTP% ...
 set "TRIES=0"
 :wait_os
 set "CODE_HTTP=" & set "CODE_HTTPS="
 for /f "usebackq delims=" %%S in (`curl -s -o NUL -w "%%{http_code}" "%OS_HTTP%" 2^>^&1`) do set "CODE_HTTP=%%S"
 for /f "usebackq delims=" %%S in (`curl -k -s -o NUL -w "%%{http_code}" "%OS_HTTPS%" 2^>^&1`) do set "CODE_HTTPS=%%S"
-if "%CODE_HTTP%"=="200"  (echo [OK ] OpenSearch HTTP 200 & goto :os_ready)
-if "%CODE_HTTP%"=="401"  (echo [OK ] OpenSearch HTTP 401 (auth required) & goto :os_ready)
-if "%CODE_HTTPS%"=="200" (echo [OK ] OpenSearch HTTPS 200 & goto :os_ready)
-if "%CODE_HTTPS%"=="401" (echo [OK ] OpenSearch HTTPS 401 (auth required) & goto :os_ready)
+
+set /a IDX=TRIES %% 4
+for /f %%c in ("!IDX!") do set "CH=!SPIN:~%%c,1!"
+
+<nul set /p "=  [!CH!] OS http=!CODE_HTTP! https=!CODE_HTTPS! (try !TRIES!/!MAX_TRIES_OS!)   `r"
+
+if "!CODE_HTTP!"=="200"  (echo. & echo [OK ] OpenSearch HTTP 200 & goto :os_ready)
+if "!CODE_HTTP!"=="401"  (echo. & echo [OK ] OpenSearch HTTP 401 (auth required) & goto :os_ready)
+if "!CODE_HTTPS!"=="200" (echo. & echo [OK ] OpenSearch HTTPS 200 & goto :os_ready)
+if "!CODE_HTTPS!"=="401" (echo. & echo [OK ] OpenSearch HTTPS 401 (auth required) & goto :os_ready)
+
 set /a TRIES+=1
-if %TRIES% GEQ 90 ( echo [FAIL] OpenSearch not ready (HTTP=%CODE_HTTP% HTTPS=%CODE_HTTPS%) & goto :failout )
-timeout /t 2 >nul
+if !TRIES! GEQ !MAX_TRIES_OS! (
+  echo.
+  echo [FAIL] OpenSearch not ready (HTTP=!CODE_HTTP! HTTPS=!CODE_HTTPS!)
+  goto :diag_fail
+)
+timeout /t %SLEEP_SECONDS% >nul
 goto :wait_os
 :os_ready
 
-REM --- wait: Dashboards (HTTP) — now uses OSD port from .env ---
+REM --- wait: Dashboards (HTTP 200 = ready; 503 means booting) ---
 echo [WAIT] OpenSearch Dashboards at %OSD_STATUS% ...
 set "TRIES=0"
 :wait_osd
 set "CODE_OSD="
 for /f "usebackq delims=" %%S in (`curl -s -o NUL -w "%%{http_code}" "%OSD_STATUS%" 2^>^&1`) do set "CODE_OSD=%%S"
-if "%CODE_OSD%"=="200" (
+
+set /a IDX=TRIES %% 4
+for /f %%c in ("!IDX!") do set "CH=!SPIN:~%%c,1!"
+<nul set /p "=  [!CH!] Dashboards http=!CODE_OSD! (try !TRIES!/!MAX_TRIES_OSD!)   `r"
+
+if "!CODE_OSD!"=="200" (
+  echo.
   echo [OK ] Dashboards HTTP 200
 ) else (
-  set /a TRIES+=1
-  if %TRIES% GEQ 90 (
-    echo [FAIL] Dashboards not ready (HTTP=%CODE_OSD%)
-    goto :failout
+  REM 503 is common while plugins load; keep waiting
+  if "!CODE_OSD!"=="503" (
+    set /a TRIES+=1
+    if !TRIES! GEQ !MAX_TRIES_OSD! (
+      echo.
+      echo [FAIL] Dashboards not ready (HTTP=!CODE_OSD!)
+      goto :diag_fail
+    )
+    timeout /t %SLEEP_SECONDS% >nul
+    goto :wait_osd
+  ) else (
+    REM Other codes: still wait, but show them explicitly
+    set /a TRIES+=1
+    if !TRIES! GEQ !MAX_TRIES_OSD! (
+      echo.
+      echo [FAIL] Dashboards not ready (HTTP=!CODE_OSD!)
+      goto :diag_fail
+    )
+    timeout /t %SLEEP_SECONDS% >nul
+    goto :wait_osd
   )
-  timeout /t 2 >nul
-  goto :wait_osd
 )
 
 REM --- optional: container sanity log ---
@@ -95,9 +136,9 @@ docker ps >> "%LOGFILE%" 2>&1
 
 REM --- seed Postgres (uses POSTGRES_DB from env) ---
 echo [STEP] Seeding Postgres...
-docker compose -f "%COMPOSE_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/001_init.sql >> "%LOGFILE%" 2>&1
+docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/001_init.sql >> "%LOGFILE%" 2>&1
 if errorlevel 1 echo [WARN] schema init failed or already applied. See log.
-docker compose -f "%COMPOSE_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/090_sample_inserts.sql >> "%LOGFILE%" 2>&1
+docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/090_sample_inserts.sql >> "%LOGFILE%" 2>&1
 if errorlevel 1 echo [WARN] sample inserts failed or already applied. See log.
 
 REM --- seed OpenSearch: template + sample doc ---
@@ -121,9 +162,18 @@ if exist "%SAMPLE_DOC%" (
 
 echo [DONE] Bootstrap completed.
 popd
+endlocal
 exit /b 0
 
-:failout
+:diag_fail
+echo [DIAG] Checking port mappings...
+pushd infra
+docker compose port dashboards 5601
+docker compose port opensearch 9200
+echo [DIAG] Last 40 lines of dashboards logs:
+docker compose logs --since=5m dashboards | tail -n 40
+popd
 echo [ABORT] Bootstrap failed due to readiness or init error.
 popd
+endlocal
 exit /b 1
