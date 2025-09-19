@@ -43,6 +43,7 @@ services:
     environment:
       # ### CHANGED: talk to OpenSearch in-cluster over HTTP on 9200
       - OPENSEARCH_HOSTS=["http://opensearch:9200"]
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
     ports:
       # ### CHANGED: host port from .env -> container 5601
       - "${OPENSEARCH_DASHBOARDS_PORT:-5601}:5601"
