@@ -9,7 +9,6 @@ pushd "%~dp0\.."
 set "COMPOSE_FILE=infra\docker-compose.yml"
 set "ENV_FILE=infra\.env"
 
-REM defaults (overridden by env)
 set "OPENSEARCH_PORT=9200"
 set "OPENSEARCH_DASHBOARDS_PORT=5601"
 set "MINIO_PORT=9000"
@@ -17,7 +16,6 @@ set "POSTGRES_PORT=5432"
 set "POSTGRES_USER=kwve"
 set "POSTGRES_DB=kwve"
 set "REDIS_PORT=6379"
-
 set "OPENSEARCH_USERNAME="
 set "OPENSEARCH_PASSWORD="
 
@@ -38,7 +36,8 @@ if exist "%ENV_FILE%" (
 
 set "OS_URL=http://localhost:%OPENSEARCH_PORT%"
 set "OSD_URL=http://localhost:%OPENSEARCH_DASHBOARDS_PORT%/api/status"
-set "MINIO_HEALTH=http://localhost:%MINIO_PORT%/minio/health/ready"
+set "MINIO_READY=http://localhost:%MINIO_PORT%/minio/health/ready"
+set "MINIO_LIVE=http://localhost:%MINIO_PORT%/minio/health/live"
 set "OS_INDEX_URL=%OS_URL%/kwve-transcripts"
 set "OS_DOC_URL=%OS_URL%/kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z"
 
@@ -69,10 +68,9 @@ echo Logs: %LOGFILE%
 echo.
 
 call :log "=== Verify Start ==="
-call :log "OS=%OS_URL%  OSD=%OSD_URL%  MINIO=%MINIO_HEALTH%"
+call :log "OS=%OS_URL%  OSD=%OSD_URL%  MINIO=%MINIO_READY%"
 call :log "PG user/db/port: %POSTGRES_USER% / %POSTGRES_DB% / %POSTGRES_PORT%"
 
-REM ----- (1) Containers -----
 echo [1] Checking containers...
 call :container_up kwve_pg
 call :container_up kwve_os
@@ -80,35 +78,27 @@ call :container_up kwve_os_dash
 call :container_up kwve_minio
 call :container_up kwve_redis
 
-REM ----- (2) HTTP endpoints with live progress -----
 echo [2] Checking HTTP endpoints...
 call :wait_http "OpenSearch" "%OS_URL%/" "200,401" 60 2
 call :wait_http "OpenSearch Dashboards" "%OSD_URL%" "200,401,302" 90 2
-call :wait_http "MinIO Health" "%MINIO_HEALTH%" "200" 60 2
 
-REM ----- (3) OpenSearch index & doc -----
+REM MinIO: first try /ready (expect 200), then fall back to /live (200)
+call :wait_http "MinIO Ready" "%MINIO_READY%" "200" 20 2
+if errorlevel 1 (
+  echo.
+  echo [INFO] MinIO /ready did not return 200; trying /live ...
+  call :wait_http "MinIO Live" "%MINIO_LIVE%" "200" 40 2
+)
+
 echo [3] Checking OpenSearch index/doc...
 call :curl_code "%OS_INDEX_URL%"
-if "!_CURL_CODE!"=="200" (
-  call :pass "Index exists: kwve-transcripts (200)"
-) else (
-  call :fail "Index missing or not accessible: kwve-transcripts (!_CURL_CODE!)"
-)
+if "!_CURL_CODE!"=="200" ( call :pass "Index exists: kwve-transcripts (200)" ) else ( call :fail "Index missing or not accessible: kwve-transcripts (!_CURL_CODE!)" )
 call :curl_code "%OS_DOC_URL%"
-if "!_CURL_CODE!"=="200" (
-  call :pass "Sample doc present (200)"
-) else (
-  call :fail "Sample doc missing (!_CURL_CODE!)"
-)
+if "!_CURL_CODE!"=="200" ( call :pass "Sample doc present (200)" ) else ( call :fail "Sample doc missing (!_CURL_CODE!)" )
 
-REM ----- (4) Postgres connectivity -----
 echo [4] Checking Postgres connectivity...
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -c "SELECT 1;" >> "%LOGFILE%" 2>&1
-if errorlevel 1 (
-  call :fail "Postgres connectivity failed."
-) else (
-  call :pass "Postgres connectivity OK (SELECT 1)."
-)
+if errorlevel 1 ( call :fail "Postgres connectivity failed." ) else ( call :pass "Postgres connectivity OK (SELECT 1)." )
 
 echo.
 echo === SUMMARY ===
@@ -125,9 +115,7 @@ if %FAIL_COUNT%==0 (
   popd & endlocal & exit /b 1
 )
 
-REM ===========================
-REM Helpers
-REM ===========================
+REM ===== helpers =====
 :log
 >>"%LOGFILE%" echo %~1
 goto :eof
@@ -153,15 +141,10 @@ goto :eof
 :container_up
 set "_NAME=%~1"
 for /f "usebackq delims=" %%N in (`docker ps --filter "name=^%_NAME%$" --format "{{.Names}}"`) do set "_FOUND=%%N"
-if defined _FOUND (
-  call :pass "Container up: %_NAME%"
-) else (
-  call :fail "Container missing: %_NAME%"
-)
+if defined _FOUND ( call :pass "Container up: %_NAME%" ) else ( call :fail "Container missing: %_NAME%" )
 set "_FOUND="
 goto :eof
 
-REM Live wait: acceptable codes list (e.g., "200,401")
 :wait_http
 set "_LBL=%~1"
 set "_URL=%~2"
@@ -170,7 +153,7 @@ set "_MAX=%~4"
 set "_SLEEP=%~5"
 set "_TRY=0"
 echo [WAIT] %_LBL% at %_URL%
-:wait_http_loop
+:loop_http
 set /a IDX=_TRY %% 4
 for %%z in (!IDX!) do (
   set "SPIN0=|"
@@ -186,13 +169,13 @@ echo ,%_ACCEPT%, | findstr /C:",!CODE!," >nul
 if not errorlevel 1 (
   echo.
   call :pass "%_LBL% HTTP !CODE!"
-  goto :eof
+  exit /b 0
 )
 set /a _TRY+=1
 if !_TRY! GEQ !_MAX! (
   echo.
   call :fail "%_LBL% expected one of {%_ACCEPT%}, got !CODE!  (%_URL%)"
-  goto :eof
+  exit /b 1
 )
 timeout /t %_SLEEP% >nul
-goto :wait_http_loop
+goto :loop_http

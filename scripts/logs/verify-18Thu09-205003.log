@@ -1,0 +1,19 @@
+=== Verify Start ===
+OS=http://localhost:19220  OSD=http://localhost:15601/api/status  MINIO=http://localhost:19000/minio/health/ready
+PG user/db/port: kwve / kwve_logs / 15432
+[PASS] Container up: kwve_pg
+[PASS] Container up: kwve_os
+[PASS] Container up: kwve_os_dash
+[PASS] Container up: kwve_minio
+[PASS] Container up: kwve_redis
+[PASS] OpenSearch HTTP 200
+[PASS] OpenSearch Dashboards HTTP 200
+[FAIL] MinIO Health expected one of {200}, got 400  (http://localhost:19000/minio/health/ready)
+[FAIL] Index missing or not accessible: kwve-transcripts (404)
+[FAIL] Sample doc missing (404)
+ ?column? 
+----------
+        1
+(1 row)
+
+[PASS] Postgres connectivity OK (SELECT 1).

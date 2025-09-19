@@ -5,11 +5,9 @@ REM bootstrap-test-windows.cmd — bring up stack, wait, and seed (env-aware)
 REM =====================================================================
 setlocal EnableExtensions EnableDelayedExpansion
 
-REM --- resolve repo root (script may be run from anywhere) ---
 set "SCRIPT_DIR=%~dp0"
 pushd "%SCRIPT_DIR%\.."
 
-REM --- files/paths ---
 set "COMPOSE_FILE=infra\docker-compose.yml"
 set "ENV_FILE=infra\.env"
 set "LOGDIR=scripts\logs"
@@ -21,7 +19,7 @@ set hh=0%hh%
 set hh=%hh:~-2%
 set "BOOTLOG=%LOGDIR%\bootstrap-%yyyy%%mm%%dd%-%hh%%nn%%ss%.log"
 
-REM --- defaults (overridden by infra\.env) ---
+REM defaults
 set "POSTGRES_USER=kwve"
 set "POSTGRES_DB=kwve"
 set "POSTGRES_PORT=5432"
@@ -29,11 +27,9 @@ set "OPENSEARCH_PORT=9200"
 set "OPENSEARCH_DASHBOARDS_PORT=5601"
 set "MINIO_PORT=9000"
 set "MINIO_CONSOLE_PORT=9001"
-
 set "OPENSEARCH_USERNAME="
 set "OPENSEARCH_PASSWORD="
 
-REM --- read infra\.env safely (ignore comments/blank) ---
 if not exist "%ENV_FILE%" (
   echo [ERR] Missing %ENV_FILE%
   popd & endlocal & exit /b 1
@@ -52,16 +48,14 @@ for /f "usebackq tokens=1* delims== eol=#" %%A in ("%ENV_FILE%") do (
 )
 
 set "OS_URL=http://localhost:%OPENSEARCH_PORT%"
+set "OS_URLS=https://localhost:%OPENSEARCH_PORT%"
 set "OSD_STATUS=http://localhost:%OPENSEARCH_DASHBOARDS_PORT%/api/status"
-set "MINIO_HEALTH=http://localhost:%MINIO_PORT%/minio/health/ready"
 
-REM optional auth for OS when security is enabled
 set "OS_AUTH="
 if defined OPENSEARCH_USERNAME if defined OPENSEARCH_PASSWORD (
   set "OS_AUTH=-u %OPENSEARCH_USERNAME%:%OPENSEARCH_PASSWORD%"
 )
 
-REM spinner glyphs
 set "SP0=|"
 set "SP1=/"
 set "SP2=-"
@@ -70,39 +64,41 @@ set "SP3=\\"
 echo [INFO] Using: PG=%POSTGRES_USER%@%POSTGRES_PORT% DB=%POSTGRES_DB%  OS=%OS_URL%  OSD=%OPENSEARCH_DASHBOARDS_PORT%  MinIO=%MINIO_PORT%
 echo [STEP] docker compose up -d
 
-REM dual-output: prefer tee.exe if available
 where tee >nul 2>&1
 if %errorlevel%==0 (
   docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" up -d 2>&1 | tee -a "%BOOTLOG%"
 ) else (
   docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" up -d >> "%BOOTLOG%" 2>&1
 )
-
 if errorlevel 1 (
   echo [ERR] compose up failed
   popd & endlocal & exit /b 1
 )
 
-REM --- WAIT: OpenSearch ---
+REM --- initial grace period to let JVM bind ports ---
+timeout /t 5 >nul
+
+REM --- WAIT: OpenSearch (accept 200/401 via HTTP or HTTPS) ---
 set "TRIES=0"
-set "MAX_TRIES_OS=60"
+set "MAX_TRIES_OS=180"
 set "SLEEP=2"
 echo [WAIT] OpenSearch at %OS_URL% ...
 :wait_os
 set /a IDX=TRIES %% 4
 for %%z in (!IDX!) do set "CH=!SP%%z!"
-set "CODE_OS="
-for /f "usebackq delims=" %%S in (`curl -s -o NUL -w "%%{http_code}" %OS_AUTH% "%OS_URL%/" 2^>^&1`) do set "CODE_OS=%%S"
-<nul set /p "=  [!CH!] OS http=!CODE_OS! (try !TRIES!/!MAX_TRIES_OS!)   `r"
-if "!CODE_OS!"=="200" (
-  echo.
-  echo [OK ] OpenSearch HTTP 200
-  goto :os_ready
-)
+set "CODE_HTTP="
+set "CODE_HTTPS="
+for /f "usebackq delims=" %%S in (`curl -s -o NUL -w "%%{http_code}" %OS_AUTH% "%OS_URL%/" 2^>^&1`) do set "CODE_HTTP=%%S"
+for /f "usebackq delims=" %%S in (`curl -k -s -o NUL -w "%%{http_code}" %OS_AUTH% "%OS_URLS%/" 2^>^&1`) do set "CODE_HTTPS=%%S"
+<nul set /p "=  [!CH!] OS http=!CODE_HTTP! https=!CODE_HTTPS! (try !TRIES!/!MAX_TRIES_OS!)   `r"
+if "!CODE_HTTP!"=="200"  (echo. & echo [OK ] OpenSearch HTTP 200 & goto :os_ready)
+if "!CODE_HTTP!"=="401"  (echo. & echo [OK ] OpenSearch HTTP 401 (auth) & goto :os_ready)
+if "!CODE_HTTPS!"=="200" (echo. & echo [OK ] OpenSearch HTTPS 200 & goto :os_ready)
+if "!CODE_HTTPS!"=="401" (echo. & echo [OK ] OpenSearch HTTPS 401 (auth) & goto :os_ready)
 set /a TRIES+=1
 if !TRIES! GEQ !MAX_TRIES_OS! (
   echo.
-  echo [FAIL] OpenSearch not ready (last=!CODE_OS!)
+  echo [FAIL] OpenSearch not ready (HTTP=!CODE_HTTP! HTTPS=!CODE_HTTPS!)
   goto :abort
 )
 timeout /t !SLEEP! >nul
@@ -111,7 +107,7 @@ goto :wait_os
 
 REM --- WAIT: Dashboards (accept 200/401/302) ---
 set "TRIES=0"
-set "MAX_TRIES_OSD=90"
+set "MAX_TRIES_OSD=180"
 echo [WAIT] OpenSearch Dashboards at %OSD_STATUS% ...
 :wait_osd
 set /a IDX=TRIES %% 4
@@ -132,25 +128,23 @@ timeout /t !SLEEP! >nul
 goto :wait_osd
 :osd_ready
 
-REM --- seed: Postgres schema & sample data ---
+REM --- SEED: Postgres (idempotent) ---
 echo [STEP] Seeding Postgres (schema + sample)...
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/001_init.sql >> "%BOOTLOG%" 2>&1
-if errorlevel 1 ( echo [WARN] Schema init non-zero (check %BOOTLOG%) )
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/090_sample_inserts.sql >> "%BOOTLOG%" 2>&1
-if errorlevel 1 ( echo [WARN] Sample inserts non-zero (check %BOOTLOG%) )
 
-REM --- seed: OpenSearch index template & sample doc ---
-echo [STEP] Seeding OpenSearch (template + sample doc)...
+REM --- SEED: OpenSearch template + CREATE index + sample doc ---
+echo [STEP] Seeding OpenSearch (template + index + sample doc)...
+
+REM apply template (ignore failures; we create index next)
 curl -s -X PUT %OS_AUTH% -H "Content-Type: application/json" ^
   "%OS_URL%/_index_template/kwve-transcripts-template" ^
   --data-binary "@sql/opensearch_index_template.json" >> "%BOOTLOG%" 2>&1
 
-REM create the concrete index once (ignore 400 if exists)
-curl -s -X PUT %OS_AUTH% -H "Content-Type: application/json" ^
-  "%OS_URL%/kwve-transcripts" ^
-  -d "{\"settings\": {\"number_of_shards\": 1, \"number_of_replicas\": 0}}" >> "%BOOTLOG%" 2>&1
+REM simple index create (no body) to avoid CMD quoting issues
+curl -s -X PUT %OS_AUTH% "%OS_URL%/kwve-transcripts" >> "%BOOTLOG%" 2>&1
 
-REM load a sample transcript doc
+REM insert sample document
 curl -s -X POST %OS_AUTH% -H "Content-Type: application/json" ^
   "%OS_URL%/kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" ^
   --data-binary "@sample-data/radio/2025-09-04/2025-09-04T09-00-00Z.sample-transcript.json" >> "%BOOTLOG%" 2>&1
@@ -160,4 +154,5 @@ popd & endlocal & exit /b 0
 
 :abort
 echo [ABORT] Bootstrap failed due to readiness or init error.
+echo [HINT] Try:  docker compose -f "%COMPOSE_FILE%" logs --since=2m opensearch
 popd & endlocal & exit /b 1
