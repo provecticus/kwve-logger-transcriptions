@@ -68,36 +68,36 @@ services:
       - minio_data:/data
 
     asr_worker:
-    container_name: kwve_asr_worker
-    build:
-      context: ..
-      dockerfile: infra/asr.Dockerfile
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      # Where to look for new audio in MinIO (prefix/folder)
-      - ASR_INPUT_PREFIX=incoming/
-      # Where to write artifacts in MinIO
-      - ASR_ARTIFACT_PREFIX=artifacts/
-      # OpenSearch index (already used by your stack)
-      - OS_INDEX=kwve-transcripts
-      # ASR model & settings (CPU friendly)
-      - ASR_MODEL=base.en
-      - ASR_BEAM_SIZE=5
-      - ASR_VAD=false
-      - ASR_POLL_INTERVAL_SEC=20
-      # MinIO endpoint pieces assembled from .env:
-      # MINIO_HOST is host:port like "minio:9000" INSIDE the compose network.
-      # We use the service name "minio" and container port 9000 for in-cluster calls.
-      - MINIO_ENDPOINT=minio:9000
-      - MINIO_SECURE=false
-      # OS_URL is internal to the network too; use the service name and port 9200
-      - OPENSEARCH_URL=http://opensearch:9200
-    depends_on:
-      - minio
-      - opensearch
-    networks:
-      - kwve_net
+      container_name: kwve_asr_worker
+      build:
+        context: ..
+        dockerfile: infra/asr.Dockerfile
+      restart: unless-stopped
+      env_file: .env
+      environment:
+        # Where to look for new audio in MinIO (prefix/folder)
+        - ASR_INPUT_PREFIX=incoming/
+        # Where to write artifacts in MinIO
+        - ASR_ARTIFACT_PREFIX=artifacts/
+        # OpenSearch index (already used by your stack)
+        - OS_INDEX=kwve-transcripts
+        # ASR model & settings (CPU friendly)
+        - ASR_MODEL=base.en
+        - ASR_BEAM_SIZE=5
+        - ASR_VAD=false
+        - ASR_POLL_INTERVAL_SEC=20
+        # MinIO endpoint pieces assembled from .env:
+        # MINIO_HOST is host:port like "minio:9000" INSIDE the compose network.
+        # We use the service name "minio" and container port 9000 for in-cluster calls.
+        - MINIO_ENDPOINT=minio:9000
+        - MINIO_SECURE=false
+        # OS_URL is internal to the network too; use the service name and port 9200
+        - OPENSEARCH_URL=http://opensearch:9200
+      depends_on:
+        - minio
+        - opensearch
+      networks:
+        - kwve_net
 
   redis:
     image: redis:7-alpine
