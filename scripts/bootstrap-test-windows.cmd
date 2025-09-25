@@ -64,21 +64,29 @@ set "PS=powershell -NoLogo -NoProfile -Command"
 
 REM ===== WAIT: OpenSearch (HTTP then HTTPS; accept 200/401) =====
 set "MAX=180"
-for /l %%i in (1,1,%MAX%) do (
-  for /f "usebackq delims=" %%S in (`%PS% "$ProgressPreference='SilentlyContinue'; try{(Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%').StatusCode}catch{0}"`) do set CODE_HTTP=%%S
-  if "%CODE_HTTP%"=="200"  (echo [OK ] OpenSearch HTTP 200 & goto :os_ready)
-  if "%CODE_HTTP%"=="401"  (echo [OK ] OpenSearch HTTP 401 (auth) & goto :os_ready)
+set "PS=powershell -NoLogo -NoProfile -Command"
+echo [WAIT] OpenSearch at %OS_HTTP%
+for /l %%I in (1,1,%MAX%) do (
+  set "CODE_HTTP="
+  set "CODE_HTTPS="
 
-  for /f "usebackq delims=" %%S in (`%PS% "$ProgressPreference='SilentlyContinue'; try{(Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTPS%').StatusCode}catch{0}"`) do set CODE_HTTPS=%%S
-  if "%CODE_HTTPS%"=="200" (echo [OK ] OpenSearch HTTPS 200 & goto :os_ready)
-  if "%CODE_HTTPS%"=="401" (echo [OK ] OpenSearch HTTPS 401 (auth) & goto :os_ready)
+  for /f "usebackq delims=" %%S in (`%PS% "$ProgressPreference='SilentlyContinue'; try{(Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%').StatusCode}catch{0}"`) do set "CODE_HTTP=%%S"
+  set "CODE_HTTP=!CODE_HTTP: =!"
+  if "!CODE_HTTP!"=="200"  (echo [OK ] OpenSearch HTTP 200 & goto :os_ready)
+  if "!CODE_HTTP!"=="401"  (echo [OK ] OpenSearch HTTP 401 (auth) & goto :os_ready)
 
-  echo [WAIT] OpenSearch … attempt %%i/%MAX% (http=%CODE_HTTP% https=%CODE_HTTPS%)
+  for /f "usebackq delims=" %%S in (`%PS% "$ProgressPreference='SilentlyContinue'; try{(Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTPS%').StatusCode}catch{0}"`) do set "CODE_HTTPS=%%S"
+  set "CODE_HTTPS=!CODE_HTTPS: =!"
+  if "!CODE_HTTPS!"=="200" (echo [OK ] OpenSearch HTTPS 200 & goto :os_ready)
+  if "!CODE_HTTPS!"=="401" (echo [OK ] OpenSearch HTTPS 401 (auth) & goto :os_ready)
+
+  echo [WAIT] OpenSearch … status http=!CODE_HTTP! https=!CODE_HTTPS!  (try %%I/%MAX%)
   timeout /t 2 >nul
 )
-echo [FAIL] OpenSearch not ready (http=%CODE_HTTP% https=%CODE_HTTPS%)
+echo [FAIL] OpenSearch not ready (http=!CODE_HTTP! https=!CODE_HTTPS!)
 goto :abort
 :os_ready
+
 
 REM ===== WAIT: Dashboards (accept 200/401/302) =====
 set "MAX=180"
