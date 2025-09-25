@@ -1,0 +1,9 @@
+=== Verify Start ===
+OS=http://localhost:19220  OSD=http://localhost:15601/api/status  MINIO_READY=http://localhost:19001/minio/health/ready  PG kwve_logs@15432
+[PASS] Container up: kwve_pg
+[PASS] Container up: kwve_os
+[PASS] Container up: kwve_os_dash
+[PASS] Container up: kwve_minio
+[PASS] Container up: kwve_redis
+[PASS] OpenSearch Dashboards HTTP 200
+[PASS] MinIO Ready HTTP 200
