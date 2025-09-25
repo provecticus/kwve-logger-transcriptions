@@ -1,13 +1,14 @@
-
 @echo off
 REM =====================================================================
 REM bootstrap-test-windows.cmd — bring up stack, wait, and seed (env-aware)
 REM =====================================================================
 setlocal EnableExtensions EnableDelayedExpansion
 
+REM --- resolve repo root (script may be run from anywhere) ---
 set "SCRIPT_DIR=%~dp0"
 pushd "%SCRIPT_DIR%\.."
 
+REM --- files/paths ---
 set "COMPOSE_FILE=infra\docker-compose.yml"
 set "ENV_FILE=infra\.env"
 set "LOGDIR=scripts\logs"
@@ -19,7 +20,7 @@ set hh=0%hh%
 set hh=%hh:~-2%
 set "BOOTLOG=%LOGDIR%\bootstrap-%yyyy%%mm%%dd%-%hh%%nn%%ss%.log"
 
-REM defaults
+REM --- defaults (overridden by infra\.env) ---
 set "POSTGRES_USER=kwve"
 set "POSTGRES_DB=kwve"
 set "POSTGRES_PORT=5432"
@@ -34,6 +35,8 @@ if not exist "%ENV_FILE%" (
   echo [ERR] Missing %ENV_FILE%
   popd & endlocal & exit /b 1
 )
+
+REM --- read env (ignore blanks / comments) ---
 for /f "usebackq tokens=1* delims== eol=#" %%A in ("%ENV_FILE%") do (
   set "K=%%~A" & set "V=%%~B"
   if /I "!K!"=="POSTGRES_USER" set "POSTGRES_USER=!V!"
@@ -51,19 +54,22 @@ set "OS_URL=http://localhost:%OPENSEARCH_PORT%"
 set "OS_URLS=https://localhost:%OPENSEARCH_PORT%"
 set "OSD_STATUS=http://localhost:%OPENSEARCH_DASHBOARDS_PORT%/api/status"
 
+REM optional auth for OS when security is enabled
 set "OS_AUTH="
 if defined OPENSEARCH_USERNAME if defined OPENSEARCH_PASSWORD (
   set "OS_AUTH=-u %OPENSEARCH_USERNAME%:%OPENSEARCH_PASSWORD%"
 )
 
+REM spinner glyphs
 set "SP0=|"
 set "SP1=/"
 set "SP2=-"
-set "SP3=\\"
+set "SP3=\"
 
-echo [INFO] Using: PG=%POSTGRES_USER%@%POSTGRES_PORT% DB=%POSTGRES_DB%  OS=%OS_URL%  OSD=%OPENSEARCH_DASHBOARDS_PORT%  MinIO=%MINIO_PORT%
+echo [INFO] Using: PG=%POSTGRES_USER%@%POSTGRES_PORT% DB=%POSTGRES_DB%  OS=%OS_URL%  OSD=%OPENSEARCH_DASHBOARDS_PORT%  MinIO=%MINIO_PORT%/%MINIO_CONSOLE_PORT%
 echo [STEP] docker compose up -d
 
+REM dual-output: prefer tee.exe if available
 where tee >nul 2>&1
 if %errorlevel%==0 (
   docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" up -d 2>&1 | tee -a "%BOOTLOG%"
@@ -75,10 +81,11 @@ if errorlevel 1 (
   popd & endlocal & exit /b 1
 )
 
-REM --- initial grace period to let JVM bind ports ---
+REM --- short grace before probing (JVM bind) ---
 timeout /t 5 >nul
 
-REM --- WAIT: OpenSearch (accept 200/401 via HTTP or HTTPS) ---
+REM --- WAIT: OpenSearch (HTTP first, HTTPS fallback; accept 200/401) ---
+set "CURL=%SystemRoot%\System32\curl.exe"
 set "TRIES=0"
 set "MAX_TRIES_OS=180"
 set "SLEEP=2"
@@ -86,10 +93,11 @@ echo [WAIT] OpenSearch at %OS_URL% ...
 :wait_os
 set /a IDX=TRIES %% 4
 for %%z in (!IDX!) do set "CH=!SP%%z!"
-set "CODE_HTTP="
-set "CODE_HTTPS="
-for /f "usebackq delims=" %%S in (`curl -s -o NUL -w "%%{http_code}" %OS_AUTH% "%OS_URL%/" 2^>^&1`) do set "CODE_HTTP=%%S"
-for /f "usebackq delims=" %%S in (`curl -k -s -o NUL -w "%%{http_code}" %OS_AUTH% "%OS_URLS%/" 2^>^&1`) do set "CODE_HTTPS=%%S"
+set "CODE_HTTP=" & set "CODE_HTTPS="
+for /f "usebackq delims=" %%S in (`"%CURL%" -s -o NUL -w "%%{http_code}" %OS_AUTH% "%OS_URL%/" 2^>^&1`) do set "CODE_HTTP=%%S"
+if not defined CODE_HTTP (
+  for /f "usebackq delims=" %%S in (`"%CURL%" -k -s -o NUL -w "%%{http_code}" %OS_AUTH% "%OS_URLS%/" 2^>^&1`) do set "CODE_HTTPS=%%S"
+)
 <nul set /p "=  [!CH!] OS http=!CODE_HTTP! https=!CODE_HTTPS! (try !TRIES!/!MAX_TRIES_OS!)   `r"
 if "!CODE_HTTP!"=="200"  (echo. & echo [OK ] OpenSearch HTTP 200 & goto :os_ready)
 if "!CODE_HTTP!"=="401"  (echo. & echo [OK ] OpenSearch HTTP 401 (auth) & goto :os_ready)
@@ -113,7 +121,7 @@ echo [WAIT] OpenSearch Dashboards at %OSD_STATUS% ...
 set /a IDX=TRIES %% 4
 for %%z in (!IDX!) do set "CH=!SP%%z!"
 set "CODE_OSD="
-for /f "usebackq delims=" %%S in (`curl -s -o NUL -w "%%{http_code}" "%OSD_STATUS%" 2^>^&1`) do set "CODE_OSD=%%S"
+for /f "usebackq delims=" %%S in (`"%CURL%" -s -o NUL -w "%%{http_code}" "%OSD_STATUS%" 2^>^&1`) do set "CODE_OSD=%%S"
 <nul set /p "=  [!CH!] OSD http=!CODE_OSD! (try !TRIES!/!MAX_TRIES_OSD!)   `r"
 if "!CODE_OSD!"=="200" (echo. & echo [OK ] Dashboards HTTP 200 & goto :osd_ready)
 if "!CODE_OSD!"=="401" (echo. & echo [OK ] Dashboards HTTP 401 (auth) & goto :osd_ready)
@@ -128,42 +136,38 @@ timeout /t !SLEEP! >nul
 goto :wait_osd
 :osd_ready
 
-REM --- SEED: Postgres (idempotent) ---
+REM --- SEED: Postgres (schema + sample) ---
 echo [STEP] Seeding Postgres (schema + sample)...
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/001_init.sql >> "%BOOTLOG%" 2>&1
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/090_sample_inserts.sql >> "%BOOTLOG%" 2>&1
 
 REM --- SEED: OpenSearch template + index + sample doc (idempotent, with retries) ---
 echo [STEP] Seeding OpenSearch (template + index + sample doc)...
-
-REM 1) Apply index template (ok if already present)
 set "TEMPLATE_PATH=sql\opensearch_index_template.json"
 if not exist "%TEMPLATE_PATH%" set "TEMPLATE_PATH=infra\opensearch_index_template.json"
 if exist "%TEMPLATE_PATH%" (
-  for /f "usebackq delims=" %%C in (`curl -s -o NUL -w "%%{http_code}" %OS_AUTH% -H "Content-Type: application/json" -X PUT "%OS_URL%/_index_template/kwve-transcripts-template" --data-binary "@%TEMPLATE_PATH%"`) do set CODE_TPL=%%C
+  for /f "usebackq delims=" %%C in (`"%CURL%" -s -o NUL -w "%%{http_code}" %OS_AUTH% -H "Content-Type: application/json" -X PUT "%OS_URL%/_index_template/kwve-transcripts-template" --data-binary "@%TEMPLATE_PATH%"`) do set CODE_TPL=%%C
   if "%CODE_TPL%"=="200" (echo [PASS] OS template applied (HTTP 200)) else if "%CODE_TPL%"=="201" (echo [PASS] OS template created (HTTP 201)) else (echo [WARN] OS template apply returned HTTP %CODE_TPL%)
 ) else (
   echo [WARN] No index template JSON found (looked in sql\ and infra\).
 )
 
-REM 2) Create index (accept 200/201; ignore 400/409 already exists)
-for /f "usebackq delims=" %%C in (`curl -s -o NUL -w "%%{http_code}" %OS_AUTH% -X PUT "%OS_URL%/kwve-transcripts"`) do set CODE_IDX=%%C
+for /f "usebackq delims=" %%C in (`"%CURL%" -s -o NUL -w "%%{http_code}" %OS_AUTH% -X PUT "%OS_URL%/kwve-transcripts"`) do set CODE_IDX=%%C
 if "%CODE_IDX%"=="200" (echo [PASS] OS index ok (HTTP 200)) ^
 else if "%CODE_IDX%"=="201" (echo [PASS] OS index created (HTTP 201)) ^
 else if "%CODE_IDX%"=="400" (echo [PASS] OS index already exists (HTTP 400)) ^
 else if "%CODE_IDX%"=="409" (echo [PASS] OS index already exists (HTTP 409)) ^
 else (echo [WARN] OS index create returned HTTP %CODE_IDX%)
 
-REM 3) Insert sample document (retry once if racing)
 set "SAMPLE_JSON=sample-data\radio\2025-09-04\2025-09-04T09-00-00Z.sample-transcript.json"
 if exist "%SAMPLE_JSON%" (
-  for /f "usebackq delims=" %%C in (`curl -s -o NUL -w "%%{http_code}" %OS_AUTH% -H "Content-Type: application/json" -X POST "%OS_URL%/kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary "@%SAMPLE_JSON%"`) do set CODE_DOC=%%C
+  for /f "usebackq delims=" %%C in (`"%CURL%" -s -o NUL -w "%%{http_code}" %OS_AUTH% -H "Content-Type: application/json" -X POST "%OS_URL%/kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary "@%SAMPLE_JSON%"`) do set CODE_DOC=%%C
   if "%CODE_DOC%"=="200" (echo [PASS] OS sample doc inserted (HTTP 200)) ^
   else if "%CODE_DOC%"=="201" (echo [PASS] OS sample doc created (HTTP 201)) ^
   else (
-    echo [INFO] OS sample doc insert returned HTTP %CODE_DOC% - retrying once after short wait...
+    echo [INFO] OS sample doc insert returned HTTP %CODE_DOC% - retrying once...
     timeout /t 2 >nul
-    for /f "usebackq delims=" %%C in (`curl -s -o NUL -w "%%{http_code}" %OS_AUTH% -H "Content-Type: application/json" -X POST "%OS_URL%/kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary "@%SAMPLE_JSON%"`) do set CODE_DOC2=%%C
+    for /f "usebackq delims=" %%C in (`"%CURL%" -s -o NUL -w "%%{http_code}" %OS_AUTH% -H "Content-Type: application/json" -X POST "%OS_URL%/kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary "@%SAMPLE_JSON%"`) do set CODE_DOC2=%%C
     if "%CODE_DOC2%"=="200" (echo [PASS] OS sample doc inserted (HTTP 200)) ^
     else if "%CODE_DOC2%"=="201" (echo [PASS] OS sample doc created (HTTP 201)) ^
     else (echo [WARN] OS sample doc insert still returned HTTP %CODE_DOC2%)
@@ -171,7 +175,6 @@ if exist "%SAMPLE_JSON%" (
 ) else (
   echo [WARN] Sample transcript not found at %SAMPLE_JSON%
 )
-
 
 echo [DONE] Bootstrap complete. See %BOOTLOG%
 popd & endlocal & exit /b 0
