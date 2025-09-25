@@ -133,21 +133,45 @@ echo [STEP] Seeding Postgres (schema + sample)...
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/001_init.sql >> "%BOOTLOG%" 2>&1
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/090_sample_inserts.sql >> "%BOOTLOG%" 2>&1
 
-REM --- SEED: OpenSearch template + CREATE index + sample doc ---
+REM --- SEED: OpenSearch template + index + sample doc (idempotent, with retries) ---
 echo [STEP] Seeding OpenSearch (template + index + sample doc)...
 
-REM apply template (ignore failures; we create index next)
-curl -s -X PUT %OS_AUTH% -H "Content-Type: application/json" ^
-  "%OS_URL%/_index_template/kwve-transcripts-template" ^
-  --data-binary "@sql/opensearch_index_template.json" >> "%BOOTLOG%" 2>&1
+REM 1) Apply index template (ok if already present)
+set "TEMPLATE_PATH=sql\opensearch_index_template.json"
+if not exist "%TEMPLATE_PATH%" set "TEMPLATE_PATH=infra\opensearch_index_template.json"
+if exist "%TEMPLATE_PATH%" (
+  for /f "usebackq delims=" %%C in (`curl -s -o NUL -w "%%{http_code}" %OS_AUTH% -H "Content-Type: application/json" -X PUT "%OS_URL%/_index_template/kwve-transcripts-template" --data-binary "@%TEMPLATE_PATH%"`) do set CODE_TPL=%%C
+  if "%CODE_TPL%"=="200" (echo [PASS] OS template applied (HTTP 200)) else if "%CODE_TPL%"=="201" (echo [PASS] OS template created (HTTP 201)) else (echo [WARN] OS template apply returned HTTP %CODE_TPL%)
+) else (
+  echo [WARN] No index template JSON found (looked in sql\ and infra\).
+)
 
-REM simple index create (no body) to avoid CMD quoting issues
-curl -s -X PUT %OS_AUTH% "%OS_URL%/kwve-transcripts" >> "%BOOTLOG%" 2>&1
+REM 2) Create index (accept 200/201; ignore 400/409 already exists)
+for /f "usebackq delims=" %%C in (`curl -s -o NUL -w "%%{http_code}" %OS_AUTH% -X PUT "%OS_URL%/kwve-transcripts"`) do set CODE_IDX=%%C
+if "%CODE_IDX%"=="200" (echo [PASS] OS index ok (HTTP 200)) ^
+else if "%CODE_IDX%"=="201" (echo [PASS] OS index created (HTTP 201)) ^
+else if "%CODE_IDX%"=="400" (echo [PASS] OS index already exists (HTTP 400)) ^
+else if "%CODE_IDX%"=="409" (echo [PASS] OS index already exists (HTTP 409)) ^
+else (echo [WARN] OS index create returned HTTP %CODE_IDX%)
 
-REM insert sample document
-curl -s -X POST %OS_AUTH% -H "Content-Type: application/json" ^
-  "%OS_URL%/kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" ^
-  --data-binary "@sample-data/radio/2025-09-04/2025-09-04T09-00-00Z.sample-transcript.json" >> "%BOOTLOG%" 2>&1
+REM 3) Insert sample document (retry once if racing)
+set "SAMPLE_JSON=sample-data\radio\2025-09-04\2025-09-04T09-00-00Z.sample-transcript.json"
+if exist "%SAMPLE_JSON%" (
+  for /f "usebackq delims=" %%C in (`curl -s -o NUL -w "%%{http_code}" %OS_AUTH% -H "Content-Type: application/json" -X POST "%OS_URL%/kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary "@%SAMPLE_JSON%"`) do set CODE_DOC=%%C
+  if "%CODE_DOC%"=="200" (echo [PASS] OS sample doc inserted (HTTP 200)) ^
+  else if "%CODE_DOC%"=="201" (echo [PASS] OS sample doc created (HTTP 201)) ^
+  else (
+    echo [INFO] OS sample doc insert returned HTTP %CODE_DOC% - retrying once after short wait...
+    timeout /t 2 >nul
+    for /f "usebackq delims=" %%C in (`curl -s -o NUL -w "%%{http_code}" %OS_AUTH% -H "Content-Type: application/json" -X POST "%OS_URL%/kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary "@%SAMPLE_JSON%"`) do set CODE_DOC2=%%C
+    if "%CODE_DOC2%"=="200" (echo [PASS] OS sample doc inserted (HTTP 200)) ^
+    else if "%CODE_DOC2%"=="201" (echo [PASS] OS sample doc created (HTTP 201)) ^
+    else (echo [WARN] OS sample doc insert still returned HTTP %CODE_DOC2%)
+  )
+) else (
+  echo [WARN] Sample transcript not found at %SAMPLE_JSON%
+)
+
 
 echo [DONE] Bootstrap complete. See %BOOTLOG%
 popd & endlocal & exit /b 0

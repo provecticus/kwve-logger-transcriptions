@@ -57,7 +57,8 @@ services:
     container_name: kwve_minio
     restart: unless-stopped
     env_file: .env
-    command: server /data --console-address ":${MINIO_CONSOLE_PORT:-9001}"
+    command: server /data --console-address ":9001"
+
     ports:
       - "${MINIO_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
