@@ -121,37 +121,33 @@ docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql
 
 
 
-REM ===== SEED: OpenSearch (template + index + sample doc; curl-based, idempotent) =====
+REM ===== SEED: OpenSearch (template + index + sample doc; PowerShell body) =====
 echo [STEP] Seeding OpenSearch (template + index + sample doc)...
 
 REM Derive repo root from the script’s folder (not %CD%)
 set "REPO=%~dp0.."
 for %%R in ("%REPO%") do set "REPO=%%~fR"
 
-REM Resolve absolute paths
+REM Absolute paths to template and sample
 set "TPL_ABS=%REPO%\sql\opensearch_index_template.json"
 if not exist "%TPL_ABS%" set "TPL_ABS=%REPO%\infra\opensearch_index_template.json"
-
 set "SAMPLE_ABS=%REPO%\sample-data\radio\2025-09-04\2025-09-04T09-00-00Z.sample-transcript.json"
 
-REM Debug print (one time so you can see what the script sees)
-echo [DEBUG] TPL_ABS="%TPL_ABS%" & if exist "%TPL_ABS%" (echo [DEBUG] template=YES) else (echo [DEBUG] template=NO)
-echo [DEBUG] SAMPLE_ABS="%SAMPLE_ABS%" & if exist "%SAMPLE_ABS%" (echo [DEBUG] sample=YES) else (echo [DEBUG] sample=NO)
-
-REM Convert to short 8.3 paths (avoids spaces/quoting issues for curl "@file")
-set "TPL_S="
-if exist "%TPL_ABS%" for %%F in ("%TPL_ABS%") do set "TPL_S=%%~sfF"
-set "SAMPLE_S="
-if exist "%SAMPLE_ABS%" for %%F in ("%SAMPLE_ABS%") do set "SAMPLE_S=%%~sfF"
-
-set "CURL=%SystemRoot%\System32\curl.exe"
+echo [DEBUG] TPL_ABS="%TPL_ABS%"
+echo [DEBUG] SAMPLE_ABS="%SAMPLE_ABS%"
 
 REM 1) Template (ok if missing—dev will still work)
-if defined TPL_S (
-  for /f "tokens=2 delims==" %%C in ('
-    %CURL% -s -o NUL -w "CODE=%%{http_code}" -H "Content-Type: application/json" ^
-      -X PUT "%OS_HTTP%_index_template/kwve-transcripts-template" --data-binary @%TPL_S% 2^>NUL
-  ') do set CODE_TPL=%%C
+if exist "%TPL_ABS%" (
+  powershell -NoLogo -NoProfile -Command ^
+    "$p='SilentlyContinue'; $ProgressPreference=$p; " ^
+    "$body = Get-Content -LiteralPath '%TPL_ABS%' -Raw -Encoding UTF8; " ^
+    "try { " ^
+    "  (Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%_index_template/kwve-transcripts-template' -Method Put -ContentType 'application/json' -Body $body).StatusCode " ^
+    "} catch { if ($_.Exception.Response) { $_.Exception.Response.StatusCode.Value__ } else { 0 } }" ^
+    > "%TEMP%\tpl.code"
+  set /p CODE_TPL=<"%TEMP%\tpl.code"
+  del "%TEMP%\tpl.code" >nul 2>&1
+
   if "%CODE_TPL%"=="200" echo [PASS] Template applied (200)
   if "%CODE_TPL%"=="201" echo [PASS] Template created (201)
   if not "%CODE_TPL%"=="200" if not "%CODE_TPL%"=="201" echo [WARN] Template HTTP %CODE_TPL%
@@ -162,9 +158,14 @@ if defined TPL_S (
 )
 
 REM 2) Create index (accept 200/201; 400/409 exists)
-for /f "tokens=2 delims==" %%C in ('
-  %CURL% -s -o NUL -w "CODE=%%{http_code}" -X PUT "%OS_HTTP%kwve-transcripts" 2^>NUL
-') do set CODE_IDX=%%C
+powershell -NoLogo -NoProfile -Command ^
+  "$p='SilentlyContinue'; $ProgressPreference=$p; " ^
+  "try { (Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%kwve-transcripts' -Method Put).StatusCode } " ^
+  "catch { if ($_.Exception.Response) { $_.Exception.Response.StatusCode.Value__ } else { 0 } }" ^
+  > "%TEMP%\idx.code"
+set /p CODE_IDX=<"%TEMP%\idx.code"
+del "%TEMP%\idx.code" >nul 2>&1
+
 if "%CODE_IDX%"=="200" echo [PASS] Index ok (200)
 if "%CODE_IDX%"=="201" echo [PASS] Index created (201)
 if "%CODE_IDX%"=="400" echo [PASS] Index exists (400)
@@ -172,20 +173,31 @@ if "%CODE_IDX%"=="409" echo [PASS] Index exists (409)
 if not "%CODE_IDX%"=="200" if not "%CODE_IDX%"=="201" if not "%CODE_IDX%"=="400" if not "%CODE_IDX%"=="409" echo [WARN] Index HTTP %CODE_IDX%
 
 REM 3) Insert sample document (retry once if race)
-if defined SAMPLE_S (
-  for /f "tokens=2 delims==" %%C in ('
-    %CURL% -s -o NUL -w "CODE=%%{http_code}" -H "Content-Type: application/json" ^
-      -X POST "%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary @%SAMPLE_S% 2^>NUL
-  ') do set CODE_DOC=%%C
+if exist "%SAMPLE_ABS%" (
+  powershell -NoLogo -NoProfile -Command ^
+    "$p='SilentlyContinue'; $ProgressPreference=$p; " ^
+    "$body = Get-Content -LiteralPath '%SAMPLE_ABS%' -Raw -Encoding UTF8; " ^
+    "try { " ^
+    "  (Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z' -Method Post -ContentType 'application/json' -Body $body).StatusCode " ^
+    "} catch { if ($_.Exception.Response) { $_.Exception.Response.StatusCode.Value__ } else { 0 } }" ^
+    > "%TEMP%\doc.code"
+  set /p CODE_DOC=<"%TEMP%\doc.code"
+  del "%TEMP%\doc.code" >nul 2>&1
+
   if "%CODE_DOC%"=="200" echo [PASS] Sample doc inserted (200)
   if "%CODE_DOC%"=="201" echo [PASS] Sample doc created (201)
   if not "%CODE_DOC%"=="200" if not "%CODE_DOC%"=="201" (
     echo [INFO] Doc insert HTTP %CODE_DOC% - retrying...
     timeout /t 2 >nul
-    for /f "tokens=2 delims==" %%C in ('
-      %CURL% -s -o NUL -w "CODE=%%{http_code}" -H "Content-Type: application/json" ^
-        -X POST "%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary @%SAMPLE_S% 2^>NUL
-    ') do set CODE_DOC2=%%C
+    powershell -NoLogo -NoProfile -Command ^
+      "$p='SilentlyContinue'; $ProgressPreference=$p; " ^
+      "$body = Get-Content -LiteralPath '%SAMPLE_ABS%' -Raw -Encoding UTF8; " ^
+      "try { " ^
+      "  (Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z' -Method Post -ContentType 'application/json' -Body $body).StatusCode " ^
+      "} catch { if ($_.Exception.Response) { $_.Exception.Response.StatusCode.Value__ } else { 0 } }" ^
+      > "%TEMP%\doc2.code"
+    set /p CODE_DOC2=<"%TEMP%\doc2.code"
+    del "%TEMP%\doc2.code" >nul 2>&1
     if "%CODE_DOC2%"=="200" echo [PASS] Sample doc inserted (200)
     if "%CODE_DOC2%"=="201" echo [PASS] Sample doc created (201)
     if not "%CODE_DOC2%"=="200" if not "%CODE_DOC2%"=="201" echo [WARN] Doc insert still HTTP %CODE_DOC2%
@@ -194,6 +206,7 @@ if defined SAMPLE_S (
   echo [WARN] Sample not found at:
   echo        "%REPO%\sample-data\radio\2025-09-04\2025-09-04T09-00-00Z.sample-transcript.json"
 )
+
 
 
 
