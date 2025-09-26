@@ -8,11 +8,11 @@ A containerized stack for ingesting, storing, and searching broadcast transcript
 
 This repository provides an **infrastructure stack** using Docker Compose with the following services:
 
-- **Postgres** – metadata & transcript storage  
-- **OpenSearch** – full‑text search over transcripts  
-- **OpenSearch Dashboards** – UI for exploring/searching  
-- **MinIO** – object storage for raw audio assets  
-- **Redis** – caching, queueing, ephemeral tasks  
+- **Postgres** - metadata & transcript storage
+- **OpenSearch** - full-text search over transcripts
+- **OpenSearch Dashboards** - UI for exploring/searching
+- **MinIO** - object storage for raw audio assets
+- **Redis** - caching, queueing, ephemeral tasks
 
 The stack is designed for reproducible local testing, development, and eventual deployment.
 
@@ -27,14 +27,14 @@ git clone https://github.com/your-org/kwve-logger-transcriptions.git
 cd kwve-logger-transcriptions
 ```
 
-### 2. Pre‑requisites
+### 2. Prerequisites
 
 Ensure the following are installed on your system:
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac) or Docker Engine (Linux)
 - [Docker Compose V2](https://docs.docker.com/compose/) (comes with Docker Desktop)
 - **Windows users only**:
-  - [GnuWin32 CoreUtils](http://gnuwin32.sourceforge.net/packages/coreutils.htm) — required for `tee.exe`
+  - [GnuWin32 CoreUtils](http://gnuwin32.sourceforge.net/packages/coreutils.htm) - required for `tee.exe`
     - Add `C:\Program Files (x86)\GnuWin32\bin` (or wherever installed) to your PATH.
 
 ```powershell
@@ -133,7 +133,7 @@ This will stop containers, remove volumes/networks, and prune dangling resources
 
 ## ✅ Next Steps
 
-- Build ingestion pipeline for real‑time transcripts  
+- Build ingestion pipeline for real-time transcripts  
 - Harden security (TLS, auth, backups)  
-- Deploy to staging/production Kubernetes or cloud stack  
+- Deploy to staging/production Kubernetes or cloud stack
 

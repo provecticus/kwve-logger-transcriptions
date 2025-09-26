@@ -1,6 +1,6 @@
 @echo off
 REM =====================================================================
-REM verify-deploy.cmd — Live-progress verification (env-aware, robust)
+REM verify-deploy.cmd - Live-progress verification (env-aware, robust)
 REM =====================================================================
 setlocal EnableExtensions EnableDelayedExpansion
 pushd "%~dp0\.."
@@ -57,7 +57,7 @@ set "SP1=/"
 set "SP2=-"
 set "SP3=\"
 
-echo === KWVE Logger Transcriptions — Verification (env-aware) ===
+echo === KWVE Logger Transcriptions - Verification (env-aware) ===
 echo Compose: %COMPOSE_FILE%   Env: %ENV_FILE%
 echo Logs: %LOGFILE%
 echo.

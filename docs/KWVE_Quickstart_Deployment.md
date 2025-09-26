@@ -144,7 +144,7 @@ Open MinIO Console: [http://localhost:9001](http://localhost:9001)
   Always use `docker compose exec postgres psql ...` (already handled by the script).
 
 - **cURL errors on Windows**?  
-  Make sure you’re running `cmd.exe`, not PowerShell. The script uses CMD syntax.
+  Make sure you're running `cmd.exe`, not PowerShell. The script uses CMD syntax.
 
 ---
 
@@ -206,3 +206,5 @@ What it checks:
 - **Postgres** responds and lists tables; optional row counts for `assets` and `transcripts`.
 
 All output is saved to `logs\verify-YYYYMMDD-HHMM.log`.
+
+If your team prefers PowerShell, we can provide `.ps1` equivalents that stream richer output and JSON summaries. Ask and we'll include them here.

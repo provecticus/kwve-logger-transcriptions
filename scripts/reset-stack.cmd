@@ -1,6 +1,6 @@
 @echo off
 REM =====================================================================
-REM reset-stack.cmd — Aggressive reset for KWVE stack (handles name conflicts)
+REM reset-stack.cmd - Aggressive reset for KWVE stack (handles name conflicts)
 REM Removes compose stacks created from either repo root or infra\ and any
 REM stray containers using fixed container_name (kwve_*).
 REM =====================================================================

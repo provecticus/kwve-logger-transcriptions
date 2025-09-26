@@ -1,4 +1,4 @@
-# KWVE Scripts Usage — Bootstrap, Verify, and Reset
+# KWVE Scripts Usage - Bootstrap, Verify, and Reset
 
 This doc explains how to use the **bootstrap**, **verify**, and **reset** scripts on Windows (CMD) for the KWVE Logger Transcriptions scaffold.
 
@@ -35,7 +35,7 @@ kwve-logger-transcriptions/
 
 ---
 
-## 1) Bootstrap — bring up, wait, and seed
+## 1) Bootstrap - bring up, wait, and seed
 
 **Script:** `scripts/bootstrap-test-windows.cmd`
 
@@ -68,7 +68,7 @@ scriptsootstrap-test-windows.cmd
 
 ---
 
-## 2) Verify — health & content checks with PASS/FAIL
+## 2) Verify - health & content checks with PASS/FAIL
 
 **Script:** `scripts/verify-deploy.cmd`
 
@@ -102,7 +102,7 @@ Logs: scripts\logserify-YYYYMMDD-HHMMSS.log
 
 ---
 
-## 3) Reset — clean slate for redeploys
+## 3) Reset - clean slate for redeploys
 
 **Script:** `scripts/reset-stack.cmd`
 
@@ -114,7 +114,8 @@ Logs: scripts\logserify-YYYYMMDD-HHMMSS.log
 
 **How to run:**
 ```cmd
-scriptseset-stack.cmd
+scripts
+eset-stack.cmd
 ```
 
 **Use this when:**
@@ -131,7 +132,7 @@ scriptseset-stack.cmd
   - Edit `infra/docker-compose.yml` to use `env_file: .env` for each service.
 
 - **HTTP 000 / 503 in verify**  
-  Services not ready yet or wrong ports. Re-run verify after 30–60s. Check `infra/.env` ports.
+  Services not ready yet or wrong ports. Re-run verify after 30-60s. Check `infra/.env` ports.
 
 - **OpenSearch index/doc missing**  
   Re-run bootstrap to apply the index template and sample doc.
@@ -145,7 +146,8 @@ scriptseset-stack.cmd
   ```
 
 - **Container name conflict (`already in use`)**  
-  Run `scriptseset-stack.cmd` to force-remove fixed-name containers, then bootstrap again.
+  Run `scripts
+eset-stack.cmd` to force-remove fixed-name containers, then bootstrap again.
 
 ---
 
@@ -160,4 +162,4 @@ scriptseset-stack.cmd
 
 ## PowerShell Option (optional)
 
-If your team prefers PowerShell, we can provide `.ps1` equivalents that stream richer output and JSON summaries. Ask and we’ll include them here.
+If your team prefers PowerShell, we can provide `.ps1` equivalents that stream richer output and JSON summaries. Ask and we'll include them here.

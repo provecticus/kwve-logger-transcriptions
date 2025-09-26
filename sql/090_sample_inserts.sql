@@ -31,5 +31,5 @@ VALUES (
 ) ON CONFLICT DO NOTHING;
 
 INSERT INTO segments (asset_id, seg_index, t_start, t_end, speaker, text) VALUES
-  ('radio:KWVE:2025-09-04T09:00:00Z', 0, 125.37, 128.92, 'S0', 'You''re listening to KWVE—Sharing Life, Delivering Truth, Giving Hope.'),
+  ('radio:KWVE:2025-09-04T09:00:00Z', 0, 125.37, 128.92, 'S0', 'You''re listening to KWVE - Sharing Life, Delivering Truth, Giving Hope.'),
   ('radio:KWVE:2025-09-04T09:00:00Z', 1, 129.10, 134.02, 'S1', 'Good morning! Today we''re joined by our special guest.');

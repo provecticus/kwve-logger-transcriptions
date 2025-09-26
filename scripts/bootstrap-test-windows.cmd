@@ -1,6 +1,6 @@
 @echo off
 REM =====================================================================
-REM bootstrap-test-windows.cmd — bring up stack, wait, and seed (env-aware)
+REM bootstrap-test-windows.cmd - bring up stack, wait, and seed (env-aware)
 REM =====================================================================
 setlocal EnableExtensions EnableDelayedExpansion
 
@@ -80,7 +80,7 @@ for /l %%I in (1,1,%MAX%) do (
   if "!CODE_HTTPS!"=="200" (echo [OK ] OpenSearch HTTPS 200 & goto :os_ready)
   if "!CODE_HTTPS!"=="401" (echo [OK ] OpenSearch HTTPS 401 (auth) & goto :os_ready)
 
-  echo [WAIT] OpenSearch … status http=!CODE_HTTP! https=!CODE_HTTPS!  (try %%I/%MAX%)
+  echo [WAIT] OpenSearch ... status http=!CODE_HTTP! https=!CODE_HTTPS!  (try %%I/%MAX%)
   timeout /t 2 >nul
 )
 echo [FAIL] OpenSearch not ready (http=!CODE_HTTP! https=!CODE_HTTPS!)
@@ -115,7 +115,7 @@ echo [WARN] Dashboards never returned 200/401/302 (last=!CODE_OSD!). Continuing.
 
 
 REM ===== SEED: Postgres =====
-echo [STEP] Seeding Postgres (schema + sample)…
+echo [STEP] Seeding Postgres (schema + sample)...
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/001_init.sql
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/090_sample_inserts.sql
 

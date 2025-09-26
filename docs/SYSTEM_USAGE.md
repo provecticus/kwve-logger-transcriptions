@@ -1,4 +1,4 @@
-# KWVE Logger Transcriptions — System Usage Guide
+# KWVE Logger Transcriptions - System Usage Guide
 
 This guide explains how to **use** the deployed stack (after bootstrap), how to check health, where to find data, and how to perform common tasks.
 
@@ -19,7 +19,7 @@ This guide explains how to **use** the deployed stack (after bootstrap), how to 
 > - MinIO Console: `19001`
 > - MinIO API (S3): `19000`
 > - Postgres: `15432`
-> (Your values may differ — always check `infra/.env`.)
+> (Your values may differ - always check `infra/.env`.)
 
 ---
 
@@ -74,7 +74,7 @@ A log is written to `scripts\logs\verify-YYYYMMDD-HHMMSS.log`.
    - Add field filters (e.g., `station`, `utc_start`, etc.)  
    - Adjust the time picker to the hour/day you need
 
-> If you use the Security plugin: you’ll be prompted to login (`OPENSEARCH_USERNAME` / `OPENSEARCH_PASSWORD`). For local dev, we commonly disable the Dashboards security plugin so no login is required.
+> If you use the Security plugin: you'll be prompted to login (`OPENSEARCH_USERNAME` / `OPENSEARCH_PASSWORD`). For local dev, we commonly disable the Dashboards security plugin so no login is required.
 
 ---
 
@@ -139,7 +139,7 @@ popd
 
 ## Troubleshooting
 
-- **Dashboards shows a login when you don’t expect it**  
+- **Dashboards shows a login when you don't expect it**  
   Ensure the security plugin is disabled in Dashboards (local dev):
   ```yaml
   dashboards:
@@ -165,7 +165,7 @@ popd
   Some MinIO builds return `400` for `/minio/health/ready` on the API port. Use console health (`/ready`, `/live`) or an S3 `HEAD /` (200/204/301/302).
 
 - **OpenSearch index/doc 404**  
-  Seed once (see “Seeding / Re-seeding OpenSearch” above) or re-run bootstrap. Verification can be extended to auto-seed if missing.
+  Seed once (see "Seeding / Re-seeding OpenSearch" above) or re-run bootstrap. Verification can be extended to auto-seed if missing.
 
 - **Compose says `services.X must be a mapping`**  
   YAML indentation/placement error; ensure `environment:` and `command:` are **inside** each service, not under `services:` root.
@@ -174,9 +174,9 @@ popd
 
 ## Scripts (Windows)
 
-- `scripts\reset-stack.cmd` — tear down containers, remove project volumes/networks, prune
-- `scripts\bootstrap-test-windows.cmd` — start stack, wait for health, seed Postgres & OpenSearch
-- `scripts\verify-deploy.cmd` — health & content checks with a log under `scripts\logs\`
+- `scripts\reset-stack.cmd` - tear down containers, remove project volumes/networks, prune
+- `scripts\bootstrap-test-windows.cmd` - start stack, wait for health, seed Postgres & OpenSearch
+- `scripts\verify-deploy.cmd` - health & content checks with a log under `scripts\logs\`
 
 > Save `.cmd` files as **ANSI** (or UTF-8 without BOM) and **CRLF** line endings to avoid `cmd.exe` parsing issues.
 

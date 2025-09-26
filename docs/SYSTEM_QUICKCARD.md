@@ -1,7 +1,7 @@
-# KWVE Logger Transcriptions — QUICK CARD (Operator)
+# KWVE Logger Transcriptions - QUICK CARD (Operator)
 
 > One-page, step-by-step: start the system, upload audio, get a transcript visible in the UI.
-> Current build: **OpenSearch + Dashboards + Postgres + MinIO**. ASR worker will be added next; this quick card includes a **temporary test path** so you can verify the search UI end‑to‑end today.
+> Current build: **OpenSearch + Dashboards + Postgres + MinIO**. ASR worker will be added next; this quick card includes a **temporary test path** so you can verify the search UI end-to-end today.
 
 ---
 
@@ -38,7 +38,7 @@ MINIO_ROOT_USER / MINIO_ROOT_PASSWORD   (from infra/.env)
 
 Until the ASR worker is wired in, use **one** of these simple test paths to see the UI working end-to-end.
 
-### Option 1 — Use the sample transcript already in the repo
+### Option 1 - Use the sample transcript already in the repo
 1) Seed the index & sample doc (if not already present). From repo root:
 ```
 curl -s -X PUT "http://localhost:$19220/kwve-transcripts"
@@ -54,7 +54,7 @@ curl -s -o NUL -w "DOC=%{http_code}\n" "http://localhost:$19220/kwve-transcripts
 ```
 You should see `IDX=200` and `DOC=200`.
 
-### Option 2 — Create a quick transcript from a TXT file
+### Option 2 - Create a quick transcript from a TXT file
 If you have a TXT file with the dialog (e.g., `myshow.txt`), convert it into a minimal JSON and index it:
 
 1) Create `temp\myshow.json` with this content (adjust fields):
@@ -100,10 +100,9 @@ You should now see your text with highlights and fields.
 
 ## E) What happens next (full pipeline)
 
-- **Planned ASR worker (Phase 2):** A containerized worker (CPU/GPU) watches MinIO or a queue, runs automatic speech recognition (e.g., faster‑whisper/whisper.cpp), generates artifacts (TXT/SRT/VTT/JSON), writes transcript JSON to OpenSearch (and metadata to Postgres).
-- **Upload → Transcript in UI:** Once the worker is in place, the operator workflow in this card will be just “upload audio → view transcript in UI,” without manual seeding.
+- **Planned ASR worker (Phase 2):** A containerized worker (CPU/GPU) watches MinIO or a queue, runs automatic speech recognition (e.g., faster-whisper/whisper.cpp), generates artifacts (TXT/SRT/VTT/JSON), writes transcript JSON to OpenSearch (and metadata to Postgres).
 
-If you want to test the **first cut** ASR worker now, ask for the add‑on compose service and we’ll wire a simple CPU worker that reads a local file and indexes JSON automatically (good enough for a lab demo).
+If you want to test the **first cut** ASR worker now, ask for the add-on compose service and we'll wire a simple CPU worker that reads a local file and indexes JSON automatically (good enough for a lab demo).
 
 ---
 
