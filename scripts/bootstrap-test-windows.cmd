@@ -88,22 +88,30 @@ goto :abort
 :os_ready
 
 
-REM ===== WAIT: Dashboards (accept 200/401/302) =====
+
+REM ===== WAIT: OpenSearch Dashboards (accept 200/401/302) =====
 set "MAX=180"
-set "PS=powershell -NoLogo -NoProfile -Command"
+if not defined PS set "PS=powershell -NoLogo -NoProfile -Command"
 echo [WAIT] OpenSearch Dashboards at %OSD_STATUS%
 for /l %%I in (1,1,%MAX%) do (
   set "CODE_OSD="
-  for /f "usebackq delims=" %%S in (`%PS% "$ProgressPreference='SilentlyContinue'; try{(Invoke-WebRequest -UseBasicParsing -Uri '%OSD_STATUS%').StatusCode}catch{0}"`) do set "CODE_OSD=%%S"
+  for /f "usebackq delims=" %%S in (`
+    %PS% "$ProgressPreference='SilentlyContinue'; try{(Invoke-WebRequest -UseBasicParsing -Uri '%OSD_STATUS%').StatusCode}catch{0}"
+  `) do set "CODE_OSD=%%S"
+
+  REM trim any stray spaces just in case
   set "CODE_OSD=!CODE_OSD: =!"
+
   if "!CODE_OSD!"=="200"  (echo [OK ] Dashboards HTTP 200 & goto :osd_ready)
   if "!CODE_OSD!"=="401"  (echo [OK ] Dashboards HTTP 401 (auth) & goto :osd_ready)
   if "!CODE_OSD!"=="302"  (echo [OK ] Dashboards HTTP 302 (redirect) & goto :osd_ready)
+
   echo [WAIT] Dashboards status=!CODE_OSD!  (try %%I/%MAX%)
   timeout /t 2 >nul
 )
-echo [WARN] Dashboards never returned 200/401/302 (last=!CODE_OSD!). Continuing…
+echo [WARN] Dashboards never returned 200/401/302 (last=!CODE_OSD!). Continuing...
 :osd_ready
+
 
 
 REM ===== SEED: Postgres =====
@@ -111,37 +119,48 @@ echo [STEP] Seeding Postgres (schema + sample)…
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/001_init.sql
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/090_sample_inserts.sql
 
-REM ===== SEED: OpenSearch (template + index + sample doc; idempotent) =====
-set "PS=powershell -NoLogo -NoProfile -Command"
+REM ===== SEED: OpenSearch (template + index + sample doc; curl-based, idempotent) =====
+set "CURL=%SystemRoot%\System32\curl.exe"
 echo [STEP] Seeding OpenSearch (template + index + sample doc)...
 
-REM 2.1 Template (ok if already present)
+REM 1) Template (ok if already present)
 set "TPL=sql\opensearch_index_template.json"
 if not exist "%TPL%" set "TPL=infra\opensearch_index_template.json"
 if exist "%TPL%" (
-  for /f "usebackq delims=" %%S in (`%PS% "$p='SilentlyContinue'; $ProgressPreference=$p; try{(Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%_index_template/kwve-transcripts-template' -Method Put -ContentType 'application/json' -InFile '%TPL%').StatusCode}catch{ $_.Exception.Response.StatusCode.Value__ }"`) do set CODE_TPL=%%S
-  if "%CODE_TPL%"=="200" (echo [PASS] Template applied (200)) else if "%CODE_TPL%"=="201" (echo [PASS] Template created (201)) else (echo [WARN] Template HTTP %CODE_TPL%)
+  for /f "tokens=2 delims==" %%C in ('"%CURL%" -s -o NUL -w "CODE=%%{http_code}" -H "Content-Type: application/json" -X PUT "%OS_HTTP%_index_template/kwve-transcripts-template" --data-binary "@%TPL%" 2^>NUL"') do set CODE_TPL=%%C
+  if "%CODE_TPL%"=="200" (echo [PASS] Template applied (200)) ^
+  else if "%CODE_TPL%"=="201" (echo [PASS] Template created (201)) ^
+  else (echo [WARN] Template HTTP %CODE_TPL%)
 ) else (
   echo [WARN] No index template JSON found (sql\ or infra\)
 )
 
-REM 2.2 Create index (accept 200/201; 400/409 = already exists)
-for /f "usebackq delims=" %%S in (`%PS% "$p='SilentlyContinue'; $ProgressPreference=$p; try{(Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%kwve-transcripts' -Method Put).StatusCode}catch{ $_.Exception.Response.StatusCode.Value__ }"`) do set CODE_IDX=%%S
-if "%CODE_IDX%"=="200" (echo [PASS] Index ok (200)) else if "%CODE_IDX%"=="201" (echo [PASS] Index created (201)) else if "%CODE_IDX%"=="400" (echo [PASS] Index exists (400)) else if "%CODE_IDX%"=="409" (echo [PASS] Index exists (409)) else (echo [WARN] Index HTTP %CODE_IDX%)
+REM 2) Create index (accept 200/201; 400/409 means exists)
+for /f "tokens=2 delims==" %%C in ('"%CURL%" -s -o NUL -w "CODE=%%{http_code}" -X PUT "%OS_HTTP%kwve-transcripts" 2^>NUL"') do set CODE_IDX=%%C
+if "%CODE_IDX%"=="200" (echo [PASS] Index ok (200)) ^
+else if "%CODE_IDX%"=="201" (echo [PASS] Index created (201)) ^
+else if "%CODE_IDX%"=="400" (echo [PASS] Index exists (400)) ^
+else if "%CODE_IDX%"=="409" (echo [PASS] Index exists (409)) ^
+else (echo [WARN] Index HTTP %CODE_IDX%)
 
-REM 2.3 Insert sample doc (retry once if racing)
+REM 3) Insert sample document (retry once if racing)
 set "SAMPLE=sample-data\radio\2025-09-04\2025-09-04T09-00-00Z.sample-transcript.json"
 if exist "%SAMPLE%" (
-  for /f "usebackq delims=" %%S in (`%PS% "$p='SilentlyContinue'; $ProgressPreference=$p; try{(Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z' -Method Post -ContentType 'application/json' -InFile '%SAMPLE%').StatusCode}catch{ $_.Exception.Response.StatusCode.Value__ }"`) do set CODE_DOC=%%S
-  if "%CODE_DOC%"=="200" (echo [PASS] Sample doc inserted (200)) else if "%CODE_DOC%"=="201" (echo [PASS] Sample doc created (201)) else (
-    echo [INFO] Doc insert HTTP %CODE_DOC% — retrying…
+  for /f "tokens=2 delims==" %%C in ('"%CURL%" -s -o NUL -w "CODE=%%{http_code}" -H "Content-Type: application/json" -X POST "%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary "@%SAMPLE%" 2^>NUL"') do set CODE_DOC=%%C
+  if "%CODE_DOC%"=="200" (echo [PASS] Sample doc inserted (200)) ^
+  else if "%CODE_DOC%"=="201" (echo [PASS] Sample doc created (201)) ^
+  else (
+    echo [INFO] Doc insert HTTP %CODE_DOC% - retrying...
     timeout /t 2 >nul
-    for /f "usebackq delims=" %%S in (`%PS% "$p='SilentlyContinue'; $ProgressPreference=$p; try{(Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z' -Method Post -ContentType 'application/json' -InFile '%SAMPLE%').StatusCode}catch{ $_.Exception.Response.StatusCode.Value__ }"`) do set CODE_DOC2=%%S
-    if "%CODE_DOC2%"=="200" (echo [PASS] Sample doc inserted (200)) else if "%CODE_DOC2%"=="201" (echo [PASS] Sample doc created (201)) else (echo [WARN] Doc insert still HTTP %CODE_DOC2%)
+    for /f "tokens=2 delims==" %%C in ('"%CURL%" -s -o NUL -w "CODE=%%{http_code}" -H "Content-Type: application/json" -X POST "%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary "@%SAMPLE%" 2^>NUL"') do set CODE_DOC2=%%C
+    if "%CODE_DOC2%"=="200" (echo [PASS] Sample doc inserted (200)) ^
+    else if "%CODE_DOC2%"=="201" (echo [PASS] Sample doc created (201)) ^
+    else (echo [WARN] Doc insert still HTTP %CODE_DOC2%)
   )
 ) else (
   echo [WARN] Sample not found at %SAMPLE%
 )
+
 
 
 echo [DONE] Bootstrap complete.
