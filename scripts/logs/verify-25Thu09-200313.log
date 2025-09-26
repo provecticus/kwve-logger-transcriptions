@@ -1,0 +1,9 @@
+=== Verify Start ===
+OS=http://localhost:19220/  OSD=http://localhost:15601/api/status  MINIO_CONSOLE=http://localhost:19001/
+PG kwve_logs@15432
+running: asr_worker
+running: minio
+running: opensearch
+running: dashboards
+running: postgres
+running: redis

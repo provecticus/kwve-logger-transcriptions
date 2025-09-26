@@ -122,13 +122,14 @@ docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql
 
 
 REM ===== SEED: OpenSearch (template + index + sample doc; PowerShell body) =====
+REM ===== SEED: OpenSearch via PowerShell (no @file paths) =====
 echo [STEP] Seeding OpenSearch (template + index + sample doc)...
 
-REM Derive repo root from the script’s folder (not %CD%)
+REM Pin repo root to the script’s folder
 set "REPO=%~dp0.."
 for %%R in ("%REPO%") do set "REPO=%%~fR"
 
-REM Absolute paths to template and sample
+REM Compute absolute template & sample paths (both optional)
 set "TPL_ABS=%REPO%\sql\opensearch_index_template.json"
 if not exist "%TPL_ABS%" set "TPL_ABS=%REPO%\infra\opensearch_index_template.json"
 set "SAMPLE_ABS=%REPO%\sample-data\radio\2025-09-04\2025-09-04T09-00-00Z.sample-transcript.json"
@@ -136,76 +137,13 @@ set "SAMPLE_ABS=%REPO%\sample-data\radio\2025-09-04\2025-09-04T09-00-00Z.sample-
 echo [DEBUG] TPL_ABS="%TPL_ABS%"
 echo [DEBUG] SAMPLE_ABS="%SAMPLE_ABS%"
 
-REM 1) Template (ok if missing—dev will still work)
-if exist "%TPL_ABS%" (
-  powershell -NoLogo -NoProfile -Command ^
-    "$p='SilentlyContinue'; $ProgressPreference=$p; " ^
-    "$body = Get-Content -LiteralPath '%TPL_ABS%' -Raw -Encoding UTF8; " ^
-    "try { " ^
-    "  (Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%_index_template/kwve-transcripts-template' -Method Put -ContentType 'application/json' -Body $body).StatusCode " ^
-    "} catch { if ($_.Exception.Response) { $_.Exception.Response.StatusCode.Value__ } else { 0 } }" ^
-    > "%TEMP%\tpl.code"
-  set /p CODE_TPL=<"%TEMP%\tpl.code"
-  del "%TEMP%\tpl.code" >nul 2>&1
+REM Call the PS seeder (ExecutionPolicy bypass to avoid policy prompts)
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "scripts\seed-os.ps1" ^
+  -OsBaseUrl "http://localhost:%OPENSEARCH_PORT%" ^
+  -IndexName "kwve-transcripts" ^
+  -TemplatePath "%TPL_ABS%" ^
+  -SamplePath "%SAMPLE_ABS%"
 
-  if "%CODE_TPL%"=="200" echo [PASS] Template applied (200)
-  if "%CODE_TPL%"=="201" echo [PASS] Template created (201)
-  if not "%CODE_TPL%"=="200" if not "%CODE_TPL%"=="201" echo [WARN] Template HTTP %CODE_TPL%
-) else (
-  echo [WARN] No index template JSON found (looked at:
-  echo        "%REPO%\sql\opensearch_index_template.json"
-  echo        "%REPO%\infra\opensearch_index_template.json" )
-)
-
-REM 2) Create index (accept 200/201; 400/409 exists)
-powershell -NoLogo -NoProfile -Command ^
-  "$p='SilentlyContinue'; $ProgressPreference=$p; " ^
-  "try { (Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%kwve-transcripts' -Method Put).StatusCode } " ^
-  "catch { if ($_.Exception.Response) { $_.Exception.Response.StatusCode.Value__ } else { 0 } }" ^
-  > "%TEMP%\idx.code"
-set /p CODE_IDX=<"%TEMP%\idx.code"
-del "%TEMP%\idx.code" >nul 2>&1
-
-if "%CODE_IDX%"=="200" echo [PASS] Index ok (200)
-if "%CODE_IDX%"=="201" echo [PASS] Index created (201)
-if "%CODE_IDX%"=="400" echo [PASS] Index exists (400)
-if "%CODE_IDX%"=="409" echo [PASS] Index exists (409)
-if not "%CODE_IDX%"=="200" if not "%CODE_IDX%"=="201" if not "%CODE_IDX%"=="400" if not "%CODE_IDX%"=="409" echo [WARN] Index HTTP %CODE_IDX%
-
-REM 3) Insert sample document (retry once if race)
-if exist "%SAMPLE_ABS%" (
-  powershell -NoLogo -NoProfile -Command ^
-    "$p='SilentlyContinue'; $ProgressPreference=$p; " ^
-    "$body = Get-Content -LiteralPath '%SAMPLE_ABS%' -Raw -Encoding UTF8; " ^
-    "try { " ^
-    "  (Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z' -Method Post -ContentType 'application/json' -Body $body).StatusCode " ^
-    "} catch { if ($_.Exception.Response) { $_.Exception.Response.StatusCode.Value__ } else { 0 } }" ^
-    > "%TEMP%\doc.code"
-  set /p CODE_DOC=<"%TEMP%\doc.code"
-  del "%TEMP%\doc.code" >nul 2>&1
-
-  if "%CODE_DOC%"=="200" echo [PASS] Sample doc inserted (200)
-  if "%CODE_DOC%"=="201" echo [PASS] Sample doc created (201)
-  if not "%CODE_DOC%"=="200" if not "%CODE_DOC%"=="201" (
-    echo [INFO] Doc insert HTTP %CODE_DOC% - retrying...
-    timeout /t 2 >nul
-    powershell -NoLogo -NoProfile -Command ^
-      "$p='SilentlyContinue'; $ProgressPreference=$p; " ^
-      "$body = Get-Content -LiteralPath '%SAMPLE_ABS%' -Raw -Encoding UTF8; " ^
-      "try { " ^
-      "  (Invoke-WebRequest -UseBasicParsing -Uri '%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z' -Method Post -ContentType 'application/json' -Body $body).StatusCode " ^
-      "} catch { if ($_.Exception.Response) { $_.Exception.Response.StatusCode.Value__ } else { 0 } }" ^
-      > "%TEMP%\doc2.code"
-    set /p CODE_DOC2=<"%TEMP%\doc2.code"
-    del "%TEMP%\doc2.code" >nul 2>&1
-    if "%CODE_DOC2%"=="200" echo [PASS] Sample doc inserted (200)
-    if "%CODE_DOC2%"=="201" echo [PASS] Sample doc created (201)
-    if not "%CODE_DOC2%"=="200" if not "%CODE_DOC2%"=="201" echo [WARN] Doc insert still HTTP %CODE_DOC2%
-  )
-) else (
-  echo [WARN] Sample not found at:
-  echo        "%REPO%\sample-data\radio\2025-09-04\2025-09-04T09-00-00Z.sample-transcript.json"
-)
 
 
 
