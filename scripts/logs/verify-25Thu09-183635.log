@@ -1,0 +1,8 @@
+=== Verify Start ===
+OS=http://localhost:19220/  OSD=http://localhost:15601/api/status  MINIO_CONSOLE=http://localhost:19001/
+PG kwve_logs@15432
+CONTAINER kwve_pg MISSING
+CONTAINER kwve_os MISSING
+CONTAINER kwve_os_dash MISSING
+CONTAINER kwve_minio MISSING
+CONTAINER kwve_redis MISSING

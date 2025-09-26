@@ -119,35 +119,39 @@ echo [STEP] Seeding Postgres (schema + sample)...
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/001_init.sql
 docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" exec -T postgres psql -U "%POSTGRES_USER%" -d "%POSTGRES_DB%" -f /sql/090_sample_inserts.sql
 
+
+
 REM ===== SEED: OpenSearch (template + index + sample doc; curl-based, idempotent) =====
 echo [STEP] Seeding OpenSearch (template + index + sample doc)...
 
-REM Absolute repo root (we already did: pushd "%~dp0\.." at the top)
-set "ROOT=%CD%"
+REM Pin repo root to the script’s parent folder (not %CD%)
+set "REPO=%~dp0.."
+for %%R in ("%REPO%") do set "REPO=%%~fR"
 
-REM Resolve template path (absolute) then to short 8.3 (avoids spaces issues)
-set "TPL1=%ROOT%\sql\opensearch_index_template.json"
-if not exist "%TPL1%" set "TPL1=%ROOT%\infra\opensearch_index_template.json"
-set "TPL1_S="
-if exist "%TPL1%" for %%F in ("%TPL1%") do set "TPL1_S=%%~sfF"
+REM Resolve absolute paths
+set "TPL_ABS=%REPO%\sql\opensearch_index_template.json"
+if not exist "%TPL_ABS%" set "TPL_ABS=%REPO%\infra\opensearch_index_template.json"
 
-REM Resolve sample path (absolute) then to short 8.3
-set "SAMPLE1=%ROOT%\sample-data\radio\2025-09-04\2025-09-04T09-00-00Z.sample-transcript.json"
-set "SAMPLE1_S="
-if exist "%SAMPLE1%" for %%F in ("%SAMPLE1%") do set "SAMPLE1_S=%%~sfF"
+set "SAMPLE_ABS=%REPO%\sample-data\radio\2025-09-04\2025-09-04T09-00-00Z.sample-transcript.json"
+
+REM Convert to short 8.3 paths (avoids curl @file issues)
+set "TPL_S="
+if exist "%TPL_ABS%" for %%F in ("%TPL_ABS%") do set "TPL_S=%%~sfF"
+set "SAMPLE_S="
+if exist "%SAMPLE_ABS%" for %%F in ("%SAMPLE_ABS%") do set "SAMPLE_S=%%~sfF"
 
 set "CURL=%SystemRoot%\System32\curl.exe"
 
 REM 1) Template (ok if already present)
-if defined TPL1_S (
-  for /f "tokens=2 delims==" %%C in ('%CURL% -s -o NUL -w "CODE=%%{http_code}" -H "Content-Type: application/json" -X PUT "%OS_HTTP%_index_template/kwve-transcripts-template" --data-binary @%TPL1_S% 2^>NUL') do set CODE_TPL=%%C
+if defined TPL_S (
+  for /f "tokens=2 delims==" %%C in ('%CURL% -s -o NUL -w "CODE=%%{http_code}" -H "Content-Type: application/json" -X PUT "%OS_HTTP%_index_template/kwve-transcripts-template" --data-binary @%TPL_S% 2^>NUL') do set CODE_TPL=%%C
   if "%CODE_TPL%"=="200" echo [PASS] Template applied (200)
   if "%CODE_TPL%"=="201" echo [PASS] Template created (201)
   if not "%CODE_TPL%"=="200" if not "%CODE_TPL%"=="201" echo [WARN] Template HTTP %CODE_TPL%
 ) else (
   echo [WARN] No index template JSON found (looked at:
-  echo        "%ROOT%\sql\opensearch_index_template.json"
-  echo        "%ROOT%\infra\opensearch_index_template.json" )
+  echo        "%REPO%\sql\opensearch_index_template.json"
+  echo        "%REPO%\infra\opensearch_index_template.json" )
 )
 
 REM 2) Create index (accept 200/201; 400/409 means exists)
@@ -159,22 +163,23 @@ if "%CODE_IDX%"=="409" echo [PASS] Index exists (409)
 if not "%CODE_IDX%"=="200" if not "%CODE_IDX%"=="201" if not "%CODE_IDX%"=="400" if not "%CODE_IDX%"=="409" echo [WARN] Index HTTP %CODE_IDX%
 
 REM 3) Insert sample document (retry once if racing)
-if defined SAMPLE1_S (
-  for /f "tokens=2 delims==" %%C in ('%CURL% -s -o NUL -w "CODE=%%{http_code}" -H "Content-Type: application/json" -X POST "%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary @%SAMPLE1_S% 2^>NUL') do set CODE_DOC=%%C
+if defined SAMPLE_S (
+  for /f "tokens=2 delims==" %%C in ('%CURL% -s -o NUL -w "CODE=%%{http_code}" -H "Content-Type: application/json" -X POST "%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary @%SAMPLE_S% 2^>NUL') do set CODE_DOC=%%C
   if "%CODE_DOC%"=="200" echo [PASS] Sample doc inserted (200)
   if "%CODE_DOC%"=="201" echo [PASS] Sample doc created (201)
   if not "%CODE_DOC%"=="200" if not "%CODE_DOC%"=="201" (
     echo [INFO] Doc insert HTTP %CODE_DOC% - retrying...
     timeout /t 2 >nul
-    for /f "tokens=2 delims==" %%C in ('%CURL% -s -o NUL -w "CODE=%%{http_code}" -H "Content-Type: application/json" -X POST "%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary @%SAMPLE1_S% 2^>NUL') do set CODE_DOC2=%%C
+    for /f "tokens=2 delims==" %%C in ('%CURL% -s -o NUL -w "CODE=%%{http_code}" -H "Content-Type: application/json" -X POST "%OS_HTTP%kwve-transcripts/_doc/radio:KWVE:2025-09-04T09:00:00Z" --data-binary @%SAMPLE_S% 2^>NUL') do set CODE_DOC2=%%C
     if "%CODE_DOC2%"=="200" echo [PASS] Sample doc inserted (200)
     if "%CODE_DOC2%"=="201" echo [PASS] Sample doc created (201)
     if not "%CODE_DOC2%"=="200" if not "%CODE_DOC2%"=="201" echo [WARN] Doc insert still HTTP %CODE_DOC2%
   )
 ) else (
   echo [WARN] Sample not found at:
-  echo        "%ROOT%\sample-data\radio\2025-09-04\2025-09-04T09-00-00Z.sample-transcript.json"
+  echo        "%REPO%\sample-data\radio\2025-09-04\2025-09-04T09-00-00Z.sample-transcript.json"
 )
+
 
 
 echo [DONE] Bootstrap complete.
