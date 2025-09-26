@@ -69,17 +69,16 @@ echo.
 REM =====================================================================
 REM 1) Containers
 REM =====================================================================
-echo [1] Checking containers...
-for %%C in (kwve_pg kwve_os kwve_os_dash kwve_minio kwve_redis) do (
-  docker ps --filter "name=^%%C$" --format "{{.Names}}" | findstr /I /X "%%C" >nul && (
-    echo [PASS] Container up: %%C
-    >>"%LOGFILE%" echo CONTAINER %%C OK
-    set /a PASS+=1
-  ) || (
-    echo [FAIL] Container missing: %%C
-    >>"%LOGFILE%" echo CONTAINER %%C MISSING
-    set /a FAIL+=1
-  )
+echo [1] Checking containers (compose)...
+for /f "usebackq delims=" %%S in (`docker compose -f "%COMPOSE_FILE%" --env-file "%ENV_FILE%" ps --services --status running`) do (
+  set "RUNNING=%%S"
+  set "RUNNING=!RUNNING:"=!"
+  >>"%LOGFILE%" echo running: !RUNNING!
+  if /I "!RUNNING!"=="postgres"  echo [PASS] Container up: kwve_pg & set /a PASS+=1
+  if /I "!RUNNING!"=="opensearch" echo [PASS] Container up: kwve_os & set /a PASS+=1
+  if /I "!RUNNING!"=="dashboards" echo [PASS] Container up: kwve_os_dash & set /a PASS+=1
+  if /I "!RUNNING!"=="minio"      echo [PASS] Container up: kwve_minio & set /a PASS+=1
+  if /I "!RUNNING!"=="redis"      echo [PASS] Container up: kwve_redis & set /a PASS+=1
 )
 
 REM =====================================================================
